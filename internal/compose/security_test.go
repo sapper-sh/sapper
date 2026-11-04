@@ -51,3 +51,12 @@ func TestWriteTightensExistingDir(t *testing.T) {
 		t.Errorf("dir mode %v, want 0700", st.Mode().Perm())
 	}
 }
+
+func TestRenderRefusesShellMetaInRepoLocation(t *testing.T) {
+	bp := example(t)
+	bp.Dir = "/srv/$(id)"
+	bp.Drill.Schedule = ""
+	if _, err := Render(bp); err == nil || !strings.Contains(err.Error(), "shell metacharacters") {
+		t.Fatalf("err = %v", err)
+	}
+}

@@ -186,6 +186,8 @@ func (bp *Blueprint) Validate() error {
 		add("backup.repository: must not contain control characters such as newlines")
 	} else if err := checkRepoArgs(bp.Backup.Repository); err != nil {
 		add("backup.repository: %v", err)
+	} else if err := CheckEnvValue(bp.Backup.Repository); err != nil {
+		add("backup.repository: %v", err)
 	}
 	if !envNameRE.MatchString(bp.Backup.PasswordEnv) {
 		add("backup.password_env: %q must be an environment variable name", bp.Backup.PasswordEnv)
@@ -310,6 +312,24 @@ func checkPathText(p string) error {
 	}
 	if strings.HasPrefix(p, "-") {
 		return errors.New("must not start with '-'")
+	}
+	return nil
+}
+
+// shellMeta are characters that change meaning when restic.env is sourced by a shell
+// ("set -a; . .sapper/restic.env"), where values are not quoted.
+const shellMeta = " \t$`\"'\\;&|<>(){}*?[]!"
+
+// CheckEnvValue rejects values that would run commands or split words if restic.env is
+// sourced by a POSIX shell.
+func CheckEnvValue(v string) error {
+	meta := shellMeta
+	if filepath.Separator == '\\' {
+		// Windows paths use '\'; restic.env there is not sourced by a POSIX shell.
+		meta = strings.ReplaceAll(meta, "\\", "")
+	}
+	if i := strings.IndexAny(v, meta); i >= 0 {
+		return fmt.Errorf("must not contain whitespace or shell metacharacters (found %q); restic.env must be safe to source", v[i])
 	}
 	return nil
 }

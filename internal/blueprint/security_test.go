@@ -134,3 +134,13 @@ func TestValidateRejectsRepoOptionInjection(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateRejectsShellMetaInRepository(t *testing.T) {
+	for _, repo := range []string{"./r$(touch /tmp/x)", "./r`id`", "./my repo", "./r;id", "s3:https://h/b?x=$HOME"} {
+		bp, _ := Parse([]byte(rep("repository: ./backups/restic", "repository: '"+repo+"'")(Example)))
+		bp.Dir = t.TempDir()
+		if err := bp.Validate(); err == nil || !strings.Contains(err.Error(), "shell metacharacters") {
+			t.Errorf("%q: err = %v", repo, err)
+		}
+	}
+}
