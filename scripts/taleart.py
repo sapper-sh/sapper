@@ -382,26 +382,6 @@ def p_breached():
     return c
 
 
-def sprite_dragon(flap):
-    """Small dragon for the cutscene, facing left, 34 columns."""
-    c = Canvas(34, 18, (34 / 60, 18 / 28))
-    c.ox = 0
-    dragon(c, flap)
-    c.light(.6)
-    c.im = c.im.transpose(Image.FLIP_LEFT_RIGHT)
-    return c
-
-
-def sprite_castle():
-    c = Canvas(46, 26, (46 / 62, 26 / 37))
-    castle(c, ox=0, oy=7)
-    c.light(.6)
-    return c
-
-
-SPRITES = {"s-dragon-0": lambda: sprite_dragon(0), "s-dragon-1": lambda: sprite_dragon(1),
-           "s-dragon-2": lambda: sprite_dragon(2), "s-castle": sprite_castle}
-
 PANELS = {"castle": p_castle, "chest": p_chest, "dragon": p_dragon, "knight": p_knight,
           "survived": p_survived, "breached": p_breached}
 
@@ -414,6 +394,3 @@ if __name__ == "__main__":
             fh.write("\n".join(to_blocks(c)) + "\n")
         with open(os.path.join(out, name + ".ascii"), "w") as fh:
             fh.write("\n".join(to_ascii(c)) + "\n")
-    for name, f in SPRITES.items():
-        with open(os.path.join(out, name + ".txt"), "w") as fh:
-            fh.write("\n".join(to_blocks(f(), glow=False, keep=True)) + "\n")

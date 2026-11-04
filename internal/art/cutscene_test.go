@@ -3,6 +3,7 @@ package art
 import (
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 )
 
@@ -63,5 +64,42 @@ func TestCutsceneEndings(t *testing.T) {
 		if usesRed != (e == EndBreached) {
 			t.Errorf("ending %d: red accent used = %v", e, usesRed)
 		}
+	}
+}
+
+func TestCutsceneRandomAccess(t *testing.T) {
+	a, b := NewCutscene(EndBreached, "x.", 5), NewCutscene(EndBreached, "x.", 5)
+	_ = a.Frame(800)
+	if a.Frame(560) != b.Frame(560) {
+		t.Fatal("frame depends on which frames were drawn before it")
+	}
+}
+
+func TestWingPoses(t *testing.T) {
+	seen := map[float64]bool{}
+	for p := 0.0; p < 1; p += .01 {
+		seen[wingAngle(p)] = true
+	}
+	if len(seen) < 6 {
+		t.Errorf("only %d wing poses", len(seen))
+	}
+}
+
+func TestCutsceneFrameTime(t *testing.T) {
+	c := NewCutscene(EndSurvived, "x.", 3)
+	start := time.Now()
+	n := 200
+	for i := 300; i < 300+n; i++ {
+		_ = c.Frame(i)
+	}
+	if per := time.Since(start) / time.Duration(n); per > time.Second/FPS/2 {
+		t.Errorf("%v per frame, budget %v", per, time.Second/FPS)
+	}
+}
+
+func BenchmarkCutsceneFrame(b *testing.B) {
+	c := NewCutscene(EndSurvived, "x.", 3)
+	for i := 0; i < b.N; i++ {
+		_ = c.Frame(300 + i%500)
 	}
 }
