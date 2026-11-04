@@ -1,6 +1,7 @@
 package art
 
 import (
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -101,5 +102,54 @@ func BenchmarkCutsceneFrame(b *testing.B) {
 	c := NewCutscene(EndSurvived, "x.", 3)
 	for i := 0; i < b.N; i++ {
 		_ = c.Frame(300 + i%500)
+	}
+}
+
+// The warden stands two thirds of the gate opening, with headroom under the arch even
+// with his hood up, and the gate geometry the constants describe is the one drawn.
+func TestWardenFitsGate(t *testing.T) {
+	ratio := wardenH * knightK / gateOpen
+	if ratio < .62 || ratio > .71 {
+		t.Fatalf("warden is %.2f of the gate opening, want about 2/3", ratio)
+	}
+	c := NewCutscene(EndSurvived, "x.", 1)
+	for i := 0; i < int(tKnight*FPS); i++ { // at the gate, before he walks out
+		p := c.wizardPose(float64(i) / FPS)
+		_, hood := p.at(0, -wardenH)
+		if groundY-hood > gateOpen*.75 {
+			t.Fatalf("frame %d: hood %.1f px above the ground, gate opening %.1f", i, groundY-hood, gateOpen)
+		}
+	}
+}
+
+// Spatial continuity: every layer goes through one camera, so where a world point lands
+// on screen moves smoothly from frame to frame, through the zoom in and out, and the
+// warden and the dragon never jump.
+func TestNoTeleports(t *testing.T) {
+	for _, e := range []Ending{EndNone, EndSurvived, EndBreached} {
+		c := NewCutscene(e, "x.", 1)
+		var last [3][2]float64
+		for i := 0; i < c.Frames(); i++ {
+			tt := float64(i) / FPS
+			f := &frame{t: tt, camX: 7 * smooth(0, cutSecs, tt)}
+			c.camera(f)
+			p := c.wizardPose(tt)
+			dx, dy, _ := c.dragonPos(tt)
+			var now [3][2]float64
+			now[0][0], now[0][1] = f.tx(p.x-f.camX, p.y)
+			now[1][0], now[1][1] = f.tx(dx-f.camX, dy)
+			now[2][0], now[2][1] = f.tx(23+3-f.camX, groundY) // the gate
+			if i > 0 {
+				for k, lim := range []float64{2.5, 4.5, 2.5} {
+					if tt < tStrike+.2 && k == 1 {
+						continue // the dragon is not there yet
+					}
+					if d := math.Hypot(now[k][0]-last[k][0], now[k][1]-last[k][1]); d > lim {
+						t.Fatalf("ending %d frame %d: object %d jumped %.1f px", e, i, k, d)
+					}
+				}
+			}
+			last = now
+		}
 	}
 }
