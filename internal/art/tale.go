@@ -37,8 +37,8 @@ var Tale = []Chapter{
 		"It even notices when a sneaky monster tries to scribble over all",
 		"your drawings at once, and keeps the old copy safe.",
 	}},
-	{"IV. The knight", "knight", []string{
-		"sapper is a knight who practises fighting dragons every week,",
+	{"IV. The warden", "wizard", []string{
+		"sapper is the warden who summons a dragon every week and raises a ward,",
 		"so it is ready when a real one comes.",
 	}},
 }

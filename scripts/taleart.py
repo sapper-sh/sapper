@@ -311,50 +311,31 @@ def dragon(c, flap):
         c.poly([(x + .3, 23), (x + 3.4, 23), (x + 3.8, 24.3), (x - .4, 24.2)], 230)
 
 
-def p_knight():
+def p_wizard():
+    """The warden: one tall triangle of hood and robe, a staff, an ice crystal, a ward."""
     c = Canvas()
-    cx = 26
-    # cape
-    c.poly([(cx - 4, 9), (cx + 4, 9), (cx + 8, 26), (cx - 8, 26)], 110)
-    # helmet, visor, plume
-    c.ellipse(cx, 5, 3.3, 3.6, 240)
-    c.rect(cx - 3.3, 5, cx + 3.3, 8.5, 240)
-    c.rect(cx - 2.4, 5.2, cx + 2.4, 5.9, 0)
-    for i in range(-2, 3):
-        c.rect(cx + i - .1, 6.6, cx + i + .2, 8, 120)
-    c.stroke(lambda t: (cx + 7 * t, 1.6 - 3 * math.sin(t * 2.2) + 2 * t), 0, 1, 255, 1.8, .6)
-    # body armour
-    c.poly([(cx - 4.2, 9), (cx + 4.2, 9), (cx + 3.2, 18), (cx - 3.2, 18)], 225)
-    c.rect(cx - 3.4, 13.5, cx + 3.4, 14.1, 100)
-    c.rect(cx - 3.6, 17.5, cx + 3.6, 19, 255)                 # belt
-    # legs
-    c.rect(cx - 3, 19, cx - .6, 27, 210)
-    c.rect(cx + .6, 19, cx + 3, 27, 200)
-    c.rect(cx - 3.6, 26.3, cx - .3, 28, 255)
-    c.rect(cx + .3, 26.3, cx + 3.6, 28, 240)
-    # sword arm, raised
-    c.stroke(lambda t: (cx + 4 + 4 * t, 10 - 3 * t), 0, 1, 230, 2.2, 1.8)
-    c.rect(cx + 7, 6.2, cx + 11, 7.2, 255)                     # crossguard
-    c.poly([(cx + 8.4, 6.2), (cx + 9.6, 6.2), (cx + 9.4, -1.5), (cx + 9, -3.5), (cx + 8.6, -1.5)], 255)
-    c.rect(cx + 8.65, 7.2, cx + 9.35, 9.4, 160)
-    # shield with the sapper emblem diamond
-    sx, sy = cx - 8, 15
-    c.poly([(sx - 5.5, sy - 6), (sx + 5.5, sy - 6), (sx + 5.5, sy + 1), (sx, sy + 8), (sx - 5.5, sy + 1)], 250)
-    c.poly([(sx - 4.4, sy - 5), (sx + 4.4, sy - 5), (sx + 4.4, sy + .6), (sx, sy + 6.6), (sx - 4.4, sy + .6)], 130)
-    c.poly([(sx, sy - 4), (sx + 2.6, sy - .5), (sx, sy + 3), (sx - 2.6, sy - .5)], 255)
-    c.ellipse(sx, sy - .5, .8, .8, 130)
-    # practice dummy dragon, a wooden target with a painted dragon head
-    dx = 50
-    c.rect(dx - .5, 9, dx + .5, 28, 150)
-    c.rect(dx - 5, 13, dx + 5, 14, 150)
-    c.ellipse(dx, 8, 4, 3.6, 190)
-    c.ellipse(dx, 8, 2.6, 2.3, 0)
-    c.poly([(dx - 1.6, 7), (dx + 2.2, 8), (dx - 1.6, 9)], 200)
-    c.poly([(dx - 3, 4.8), (dx - 4.5, 1.8), (dx - 1.5, 4.6)], 190)
-    c.poly([(dx + 3, 4.8), (dx + 4.5, 1.8), (dx + 1.5, 4.6)], 190)
-    # practice marks on the ground
-    for x in (40, 43, 57):
-        c.line([(x, 27), (x + 1.2, 25.8)], 160, .35)
+    cx = 30
+    # ward dome behind him: a thin bright arc and faint ribs
+    for i in range(0, 181, 3):
+        a = math.radians(i)
+        c.ellipse(cx + 22 * math.cos(a), 28 - 21 * math.sin(a), .45, .45, 150)
+    for a in (35, 70, 110, 145):
+        r = math.radians(a)
+        c.line([(cx, 28), (cx + 22 * math.cos(r), 28 - 21 * math.sin(r))], 70, .25)
+    # cloak trailing in the wind, robe, pointed hood
+    c.poly([(cx - 3, 9), (cx + 1, 9), (cx - 8, 27.5), (cx - 13, 27)], 120)
+    c.poly([(cx - 3.5, 9.5), (cx + 3.5, 9.5), (cx + 7, 27.5), (cx - 7, 27.5)], 200)
+    c.poly([(cx - 4, 10), (cx + 4, 10), (cx + 3.3, 4.5), (cx - .5, -1), (cx - 3.8, 4.5)], 215)
+    c.poly([(cx - 1.2, 4.6), (cx + 3.2, 4.8), (cx + 2.6, 9), (cx - .2, 9.2)], 0)
+    c.ellipse(cx + 1.6, 6.6, .55, .45, 255)            # eyes under the hood
+    # arm and staff, crystal at the top
+    c.line([(cx + 1.5, 12), (cx + 6, 16)], 200, 2.2)
+    c.line([(cx + 7, 27.5), (cx + 7, 1.5)], 170, .9)
+    c.poly([(cx + 7, -1.2), (cx + 8.6, 1.4), (cx + 7, 4), (cx + 5.4, 1.4)], 255)
+    # rune circle on the snow
+    for i in range(0, 360, 12):
+        a = math.radians(i)
+        c.ellipse(cx + 15 * math.cos(a), 28.6 + 1.2 * math.sin(a), .4, .3, 180)
     stars(c, [(4, 2), (14, 4), (40, 1), (60, 3), (64, 9)])
     ground(c)
     c.light(.55)
@@ -382,7 +363,7 @@ def p_breached():
     return c
 
 
-PANELS = {"castle": p_castle, "chest": p_chest, "dragon": p_dragon, "knight": p_knight,
+PANELS = {"castle": p_castle, "chest": p_chest, "dragon": p_dragon, "wizard": p_wizard,
           "survived": p_survived, "breached": p_breached}
 
 if __name__ == "__main__":
