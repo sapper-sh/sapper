@@ -22,6 +22,20 @@ What it does, and it is safe to rerun:
    and installs to `~/.local/bin`. Before the first release it builds with
    `go install` instead (needs Go 1.26+ inside WSL).
 
+### Before the first release: install Go inside WSL
+
+Until a release is tagged, `install.sh` builds sapper with `go install`, which
+needs Go 1.26+ inside WSL. Ubuntu's `apt install golang-go` is usually too old,
+so use the official tarball from <https://go.dev/dl> (inside WSL; use
+`linux-arm64` on ARM machines):
+
+    curl -fsSLO https://go.dev/dl/go1.26.10.linux-amd64.tar.gz
+    sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf go1.26.10.linux-amd64.tar.gz
+    echo 'export PATH="/usr/local/go/bin:$HOME/go/bin:$HOME/.local/bin:$PATH"' >> ~/.profile
+    . ~/.profile && go version
+
+Then re-run the installer. Once releases exist, Go is not needed.
+
 Options: `$env:SAPPER_VERSION = 'v0.1.0'` pins a release; `$env:SAPPER_DISTRO = 'Debian'` picks a distro.
 No telemetry; the scripts only talk to GitHub.
 

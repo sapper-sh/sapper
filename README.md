@@ -21,7 +21,9 @@ Windows (PowerShell; supported **through WSL2**, not natively; see [docs/WINDOWS
 
 The installer verifies the release binary against `SHA256SUMS` (and cosign if
 installed), installs to `~/.local/bin` (or `/usr/local/bin` as root), and
-falls back to `go install` until the first release is tagged. Set
+falls back to `go install` until the first release is tagged; that needs Go
+1.26+ (on Ubuntu/WSL, apt's `golang-go` is usually too old; use the
+[go.dev/dl](https://go.dev/dl) tarball, see [docs/WINDOWS.md](docs/WINDOWS.md)). Set
 `SAPPER_VERSION` to pin a release.
 
 From source: requires Go 1.26+ to build, and [restic](https://restic.net) at run time.
