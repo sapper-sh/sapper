@@ -97,7 +97,7 @@ captured at backup time. Drills never write to live data.`,
 		return cmd.Help()
 	}
 	root.Flags().Bool("no-anim", false, "skip the boot animation")
-	root.AddCommand(a.initCmd(), a.validateCmd(), a.buildCmd(), a.backupCmd(), a.breachCmd(), a.preflightCmd(), a.reportsCmd(), a.keygenCmd(), a.statusCmd())
+	root.AddCommand(a.initCmd(), a.validateCmd(), a.buildCmd(), a.backupCmd(), a.breachCmd(), a.preflightCmd(), a.reportsCmd(), a.keygenCmd(), a.statusCmd(), a.taleCmd())
 	return root
 }
 
