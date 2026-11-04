@@ -190,3 +190,17 @@ See [DESIGN.md](DESIGN.md#limitations).
 ## Licence
 
 Apache-2.0. See [LICENSE](LICENSE).
+
+## Easter eggs
+
+`sapper tale` is not in the main help. It tells what sapper does as a bedtime
+story in four pictures: the treasure box, the castle, the dragon and the knight.
+If a blueprint and a drill report exist, the story ends with what happened to
+your own data, for example "Your treasure survived the dragon 2 days ago. 13 of
+13 drawings came back perfect." It honours `--plain` (ASCII pictures),
+`--no-anim` and `SAPPER_NO_ANIM`, and refuses `--json`.
+
+![sapper tale](docs/img/tale.png)
+
+The pictures are drawn by `scripts/taleart.py`; individual panels are in
+[docs/img/tale/](docs/img/tale/).
