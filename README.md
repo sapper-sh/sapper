@@ -13,7 +13,7 @@ state.
 
 ## Install
 
-Requires Go 1.23+ to build, and [restic](https://restic.net) at run time.
+Requires Go 1.26+ to build, and [restic](https://restic.net) at run time.
 docker or podman with the compose plugin is needed only for `sapper build --up`.
 
     go build -o sapper ./cmd/sapper
