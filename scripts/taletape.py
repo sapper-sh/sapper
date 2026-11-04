@@ -34,11 +34,30 @@ def capture(cmd):
     return chunks
 
 
+def whole_frames(chunks):
+    """Regroup pty reads so each piece ends on a frame boundary.
+
+    A frame is one write of about 60-70 KB, larger than one pty read, so a raw chunk
+    can hold half a frame; sampling there shows the top of the new frame over the
+    bottom of the old one (a one-frame tear). Each frame starts with ESC[H, so the
+    stream is cut there and each piece is stamped with the time its last byte arrived.
+    """
+    out, buf, last = [], b"", 0.0
+    for t, data in chunks:
+        buf += data; last = t
+        cut = buf.rfind(b"\x1b[H")
+        if cut > 0:
+            out.append((t, buf[:cut])); buf = buf[cut:]
+    if buf:
+        out.append((last, buf))
+    return out
+
+
 def main():
     out, cmd = sys.argv[1], sys.argv[2]
     start = float(sys.argv[3]) if len(sys.argv) > 3 else 0
     fps = int(sys.argv[4]) if len(sys.argv) > 4 else 25
-    chunks = capture(cmd)
+    chunks = whole_frames(capture(cmd))
     screen = pyte.Screen(COLS, ROWS); stream = pyte.ByteStream(screen)
     end = chunks[-1][0] if chunks else 0
     # The final normal-screen summary replaces the cutscene; stop at the last frame of it.
