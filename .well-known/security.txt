@@ -1,7 +1,8 @@
 # security.txt for sapper (RFC 9116, https://www.rfc-editor.org/rfc/rfc9116).
 # Primary channel: GitHub private vulnerability reporting.
-# No security email address yet; one may be added later.
+# Secondary channel: email.
 Contact: https://github.com/sapper-sh/sapper/security/advisories/new
+Contact: mailto:clientsignal@outlook.com
 Expires: 2027-10-31T00:00:00Z
 Policy: https://github.com/sapper-sh/sapper/blob/main/SECURITY.md
 Canonical: https://github.com/sapper-sh/sapper/blob/main/.well-known/security.txt

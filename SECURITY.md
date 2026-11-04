@@ -7,8 +7,8 @@ reporting: **Security → Report a vulnerability** on the sapper repository
 (`https://github.com/sapper-sh/sapper/security/advisories/new`). Do not open a
 public issue.
 
-There is no security email address yet; one may be added here later. Until
-then, GitHub private vulnerability reporting is the only channel.
+If you cannot use GitHub, email clientsignal@outlook.com as a secondary
+channel. GitHub private vulnerability reporting is preferred.
 
 Include the sapper version (`sapper --version`), OS, restic and docker/podman
 versions, and a minimal blueprint or steps that reproduce the problem.
