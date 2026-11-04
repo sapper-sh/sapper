@@ -501,3 +501,11 @@ func TestTamperedReportFieldsAreCleaned(t *testing.T) {
 		}
 	}
 }
+
+func TestSingularFinding(t *testing.T) {
+	in := breachedInput()
+	in.Result.Problems = in.Result.Problems[:1]
+	if r := Build(in); !strings.HasPrefix(r.Why, "1 of 1,204 entries differs from what was backed up (1 changed content).") {
+		t.Fatalf("why %q", r.Why)
+	}
+}

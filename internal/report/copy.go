@@ -27,8 +27,12 @@ func headline(r *Report, in Input) (string, string) {
 		return "The latest backup restores correctly.", why
 	case Breached:
 		first := e.Findings[0]
-		why := fmt.Sprintf("%d of %s differ from what was backed up (%s). First: %s, %s.",
-			e.FindingsTotal, count(e.Entries, "entry", "entries"), kindSummary(r), Clean(first.Path), Clean(first.Reason))
+		verb := "differ"
+		if e.FindingsTotal == 1 {
+			verb = "differs"
+		}
+		why := fmt.Sprintf("%s of %s %s from what was backed up (%s). First: %s, %s.",
+			Num(e.FindingsTotal), count(e.Entries, "entry", "entries"), verb, kindSummary(r), Clean(first.Path), Clean(first.Reason))
 		if e.FindingsTotal > e.Entries {
 			why = fmt.Sprintf("%s found across %s (%s). First: %s, %s.",
 				count(e.FindingsTotal, "problem", "problems"), count(e.Entries, "entry", "entries"), kindSummary(r), Clean(first.Path), Clean(first.Reason))
