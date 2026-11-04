@@ -46,6 +46,11 @@ manifest stored in the per-user state directory, and runs breach drills that
 | T13 | Temp dir races (CWE-377) | `os.MkdirTemp` (`0700`, random name), restore target checked after creation, removed afterwards unless `--keep` | ops tests |
 | T14 | YAML bombs / huge input (CWE-400, CWE-776) | 1 MiB cap; yaml.v3 v3.0.1 alias limits | `TestLoadRejectsHugeBlueprint`, `TestParseBillionLaughs` |
 | T15 | Vulnerable dependencies | `govulncheck` clean at time of audit | CI suggestion below |
+| T16 | Terminal escape or bidi-override injection through restored file names, restic error text or a hand-edited report (CWE-150) | every free-text field passes through `report.Clean` (Go-quoted when it has control, format or invalid UTF-8 characters) before display; Markdown paths go in code spans that cannot be closed from inside | `TestHostileNamesAreNeutralised`, `TestTamperedReportFieldsAreCleaned`, `FuzzClean` |
+| T17 | Repository URL password copied into a shareable report via restic's error text (CWE-532) | report stores the redacted repository; the repository string in error text is replaced with its redacted form | `TestReportRedactsRepositoryPassword` |
+| T18 | Silent edit of past drill results to hide a failed drill (CWE-345) | sha256 hash chain over reports; `reports verify`; optional ed25519 signatures with a pinned public key; `--head` for truncation | `TestChainDetectsTampering`, `TestSigning` |
+| T19 | Signing key leaked or committed (CWE-312, CWE-522) | `keygen` writes `0600`, `O_EXCL`, default under the user config dir, never prints the private key; `--sign-key` warns on loose modes; load errors never echo file contents | `TestLoadPrivateKeyWarnsAndHidesContents`, `TestReportsEndToEnd` |
+| T20 | Planted huge or symlinked report files (CWE-400, CWE-59) | report reads capped at 32 MiB, key reads at 64 KiB; new reports created with `O_EXCL` so an existing file or symlink is never followed or overwritten | `TestAppendRefusesToChainPastUnreadableReport` |
 
 ## Residual risks / not addressed
 
@@ -54,5 +59,6 @@ manifest stored in the per-user state directory, and runs breach drills that
 - **`build --dry-run` prints `restic.env` verbatim**, including any credential embedded in the repository URL. Prefer restic's own credential env vars (e.g. `AWS_SECRET_ACCESS_KEY`) over URL userinfo.
 - **RESTIC_PASSWORD in the child environment** is readable by the same user (and root) via `/proc/<pid>/environ` while restic runs. restic supports `--password-file`; switching to a `0600` temp file or a pipe would narrow this further.
 - **Data at rest in the drill directory**: with `--keep`, a decrypted copy of all app data stays in the temp dir (`0700`).
+- **Report chain without a signing key** proves only that reports were not edited *quietly*: anyone who can write the state directory can rebuild an unsigned chain. Without `--head`, deleting the newest reports is invisible. Reports contain host paths; read the Markdown copy before sharing it.
 - **Upstream tools**: restic's handling of hostile repositories, docker's handling of compose files, and the catalogue images are trusted.
 - **Supply chain of sapper itself**: release binaries are not signed yet; consider SLSA provenance / cosign and a `govulncheck` CI step.

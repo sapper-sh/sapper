@@ -34,4 +34,5 @@ The threat model is in [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md).
 - Keep the restic repository off the host (or append-only), so ransomware on the host cannot delete backups.
 - Leave the published ports on `127.0.0.1` and put a TLS reverse proxy or VPN in front; never port-forward the apps directly.
 - Run `sapper breach` on a schedule; a backup that has never been restored is not a backup.
+- Sign drill reports (`sapper keygen`, `--sign-key`), keep a copy of the public key off the host, and now and then record the latest report hash elsewhere so `sapper reports verify --pub-key ... --head ...` can catch a rewritten history.
 - Update restic, docker and the catalogue images promptly.

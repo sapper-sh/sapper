@@ -16,6 +16,7 @@
 | `internal/compose` | blueprint to compose file, `restic.env`, path list, cron line; atomic 0600 writes |
 | `internal/manifest` | checksum manifest of volume trees; verification of a restored tree |
 | `internal/restic` | thin wrapper over the restic binary; optional command log |
+| `internal/report` | evidence report: building, wording, terminal/Markdown/one-line rendering, hash chain, ed25519 signing |
 | `internal/ops` | backup and breach orchestration, isolation checks, state records |
 | `internal/runtime` | docker/podman compose invocation and error hints |
 | `internal/paths` | per-user state directory per platform |
@@ -64,6 +65,31 @@ urfave/cli (comparable, smaller ecosystem).
 Linux server, but people inspect, back up and drill from laptops. `build --up`
 refuses on macOS and Windows with a clear message.
 
+**Evidence reports instead of a bare verdict.** A verdict on its own asks to be
+trusted. The report shows its working, ordered like a good postmortem or audit
+finding: bottom line first, then scope, evidence, timeline and actions. Every
+problem names the file, what was expected and what was found, and is paired with
+a command or a decision. The copy is plain on purpose: short declarative
+sentences, real numbers, no exclamation marks, no reassurance. `TestCopyStyle`
+keeps it that way.
+
+**Hash chain and optional signatures, not a transparency log.** Each report
+records the previous report's sha256, and the Merkle root of the manifest it
+checked. This makes quiet edits visible at almost no cost. It is not proof against
+someone who controls the state directory and can rebuild the chain; signing with a
+key held elsewhere and recording the head hash outside the host close most of that
+gap. Rejected: an external timestamping service (network dependency, against the
+no-telemetry rule), git as the store (heavy, and history can be rewritten too).
+
+**Measured RTO is restore plus verify.** A restore is not usable until it is
+known to be correct. RPO is the age of the drilled snapshot when the drill started,
+which is the data a restore at that moment would have lost.
+
+**Live data check by stat, not by hash.** Before restoring and after verifying,
+sapper compares path, size, mode and mtime of every live entry. Hashing again would
+double the cost of a drill. A running app can change data during a drill; the report
+says so and does not treat it as a breach.
+
 ## Limitations
 
 - Manifests live only in local state. If the host is lost, a drill from a new
@@ -78,5 +104,10 @@ refuses on macOS and Windows with a clear message.
 - `build --up` was not exercised against a real docker daemon in development.
 - Large volumes are hashed twice per backup and once per drill; no parallelism.
 - No packaging, signed releases or SBOM yet.
+- Report chains are per host. Two machines drilling the same repository keep
+  separate chains.
+- A missed RTO or RPO target does not change the exit code.
+- The report store has no retention; a report is a few kilobytes unless a drill
+  finds many problems (findings are capped at 1,000 per report).
 - The boot animation is skipped by Enter only after the line is submitted
   (stdin stays in cooked mode).
