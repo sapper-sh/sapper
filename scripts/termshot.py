@@ -29,6 +29,10 @@ def screen_image(screen, rows=None, pad=14):
         row = screen.buffer[y]
         for x in range(cols):
             ch = row[x]
+            px, py = pad + x * CW, pad + y * CH
+            bg = color(ch.bg, None)
+            if bg is not None:  # background colours carry the lower half of half-block pixels
+                d.rectangle([px, py, px + CW - 1, py + CH - 1], fill=bg)
             if ch.data in (" ", ""):
                 continue
             fg = color(ch.fg, FG)
