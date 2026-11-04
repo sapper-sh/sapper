@@ -5,11 +5,13 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"gopkg.in/yaml.v3"
 
@@ -58,7 +60,7 @@ var (
 
 // Load reads and validates the blueprint at path.
 func Load(path string) (*Blueprint, error) {
-	raw, err := os.ReadFile(path)
+	raw, err := readLimited(path, MaxSize)
 	if err != nil {
 		return nil, err
 	}
@@ -77,8 +79,31 @@ func Load(path string) (*Blueprint, error) {
 	return bp, nil
 }
 
+// MaxSize is the largest blueprint sapper reads. Real blueprints are a few hundred bytes;
+// the cap stops a hostile or corrupt file from exhausting memory in the YAML decoder.
+const MaxSize = 1 << 20
+
+func readLimited(path string, max int64) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	raw, err := io.ReadAll(io.LimitReader(f, max+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(raw)) > max {
+		return nil, fmt.Errorf("%s: larger than %d bytes", path, max)
+	}
+	return raw, nil
+}
+
 // Parse decodes YAML strictly: unknown keys are errors.
 func Parse(raw []byte) (*Blueprint, error) {
+	if len(raw) > MaxSize {
+		return nil, fmt.Errorf("parse: blueprint larger than %d bytes", MaxSize)
+	}
 	dec := yaml.NewDecoder(bytes.NewReader(raw))
 	dec.KnownFields(true)
 	var bp Blueprint
@@ -101,6 +126,8 @@ func (bp *Blueprint) Validate() error {
 	}
 	if bp.DataRoot == "" {
 		add("data_root: required")
+	} else if err := checkPathText(bp.DataRoot); err != nil {
+		add("data_root: %v", err)
 	}
 	if len(bp.Apps) == 0 {
 		add("apps: at least one app is required")
@@ -135,7 +162,15 @@ func (bp *Blueprint) Validate() error {
 				add("apps.%s.volumes.%s: empty path", name, vol)
 				continue
 			}
+			if err := checkPathText(app.Volumes[vol]); err != nil {
+				add("apps.%s.volumes.%s: %v", name, vol, err)
+				continue
+			}
 			hp := bp.HostPath(app.Volumes[vol])
+			if err := checkHostPath(hp); err != nil {
+				add("apps.%s.volumes.%s: %v", name, vol, err)
+				continue
+			}
 			key := name + "." + vol
 			for p, owner := range hostPaths {
 				if overlaps(p, hp) {
@@ -147,6 +182,8 @@ func (bp *Blueprint) Validate() error {
 	}
 	if bp.Backup.Repository == "" {
 		add("backup.repository: required")
+	} else if hasControl(bp.Backup.Repository) {
+		add("backup.repository: must not contain control characters such as newlines")
 	}
 	if !envNameRE.MatchString(bp.Backup.PasswordEnv) {
 		add("backup.password_env: %q must be an environment variable name", bp.Backup.PasswordEnv)
@@ -221,6 +258,57 @@ func overlaps(a, b string) bool {
 func within(parent, child string) bool {
 	rel, err := filepath.Rel(parent, child)
 	return err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+func hasControl(s string) bool {
+	for _, r := range s {
+		if r < 0x20 || r == 0x7f || r == utf8.RuneError {
+			return true
+		}
+	}
+	return !utf8.ValidString(s)
+}
+
+// checkPathText rejects characters that would change the meaning of a path once it is
+// written into compose short syntax ("src:dst[:mode]"), restic.env or backup-paths.txt.
+func checkPathText(p string) error {
+	if hasControl(p) {
+		return errors.New("must not contain control characters such as newlines")
+	}
+	rest := p[len(filepath.VolumeName(p)):]
+	if strings.ContainsAny(rest, ":,") {
+		return errors.New("must not contain ':' or ','; they are separators in compose volume syntax")
+	}
+	if strings.HasPrefix(p, "-") {
+		return errors.New("must not start with '-'")
+	}
+	return nil
+}
+
+// sensitiveHostPaths are host locations an app must never be given: mounting them hands a
+// web app root-equivalent control of the host (docker socket) or exposes system secrets.
+var sensitiveHostPaths = []string{
+	"/var/run/docker.sock", "/run/docker.sock", "/run/podman", "/var/run/podman",
+	"/run/containerd", "/var/run/containerd",
+	"/etc", "/root", "/boot", "/proc", "/sys", "/dev", "/usr", "/bin", "/sbin", "/lib", "/lib64",
+	"/var/lib/docker", "/var/lib/containers",
+}
+
+// checkHostPath rejects host paths that would expose the host to a container.
+func checkHostPath(hp string) error {
+	if filepath.Dir(hp) == hp {
+		return fmt.Errorf("%s is a filesystem root; mounting it would expose the whole host", hp)
+	}
+	slash := filepath.ToSlash(hp[len(filepath.VolumeName(hp)):])
+	for _, s := range sensitiveHostPaths {
+		if slash == s || strings.HasPrefix(slash, s+"/") {
+			return fmt.Errorf("%s is inside sensitive host path %s; mounting it would expose the host", hp, s)
+		}
+	}
+	if strings.HasSuffix(slash, ".sock") {
+		return fmt.Errorf("%s looks like a socket; sapper only mounts data directories", hp)
+	}
+	return nil
 }
 
 func validateCron(s string) error {
