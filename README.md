@@ -194,7 +194,7 @@ Apache-2.0. See [LICENSE](LICENSE).
 ## Easter eggs
 
 `sapper tale` is not in the main help. It tells what sapper does as a bedtime
-story: the treasure box, the castle, the dragon and the knight. On an interactive
+story: the treasure box, the castle, the dragon and the warden. On an interactive
 colour terminal of at least 78x30 it plays as a 38-second half-block cutscene on the
 alternate screen (any key skips to the end; the terminal is restored on exit or
 Ctrl-C), ending the way your last drill did. Elsewhere it prints the pictures.
@@ -208,5 +208,5 @@ your own data, for example "Your treasure survived the dragon 2 days ago. 13 of
 ![sapper tale](docs/img/tale.png)
 
 The pictures are drawn by `scripts/taleart.py` and the recording is made with
-`scripts/taletape.py`; individual panels are in
+`scripts/taletape.py`; see [docs/ART.md](docs/ART.md) for the art rules; individual panels are in
 [docs/img/tale/](docs/img/tale/).
