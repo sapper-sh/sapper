@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	goruntime "runtime"
 	"strings"
@@ -42,6 +43,9 @@ func ComposeArgs(file, project string) []string {
 
 // Up runs `<runtime> compose ... up -d`.
 func (r *Runtime) Up(ctx context.Context, file, project string) error {
+	if r.goos == "windows" {
+		return fmt.Errorf("%w\nhint: on Windows, sapper is supported through WSL2: install it with `irm https://raw.githubusercontent.com/sapper-sh/sapper/main/install.ps1 | iex`, then run sapper inside WSL (see docs/WINDOWS.md)", ErrNotLinux)
+	}
 	if r.goos != "linux" {
 		return ErrNotLinux
 	}
@@ -62,9 +66,26 @@ func (r *Runtime) Up(ctx context.Context, file, project string) error {
 	return nil
 }
 
+// IsWSL reports whether sapper runs inside Windows Subsystem for Linux.
+func IsWSL() bool {
+	if goruntime.GOOS != "linux" {
+		return false
+	}
+	b, err := os.ReadFile("/proc/version")
+	return err == nil && isWSLVersion(string(b))
+}
+
+func isWSLVersion(v string) bool { return strings.Contains(strings.ToLower(v), "microsoft") }
+
 // Hint turns common engine failures into an actionable suggestion.
-func Hint(name, stderr string) string {
+func Hint(name, stderr string) string { return hint(name, stderr, IsWSL()) }
+
+func hint(name, stderr string, wsl bool) string {
 	s := strings.ToLower(stderr)
+	if wsl && name == "docker" && (strings.Contains(s, "cannot connect to the docker daemon") ||
+		strings.Contains(s, "could not be found in this wsl") || strings.Contains(s, "docker.sock")) {
+		return "\nhint: inside WSL, start Docker Desktop on Windows and enable Settings > Resources > WSL integration for this distro, or install docker-ce inside WSL and start it with `sudo service docker start`"
+	}
 	switch {
 	case strings.Contains(s, "permission denied") && strings.Contains(s, "docker.sock"):
 		return "\nhint: your user cannot reach the docker socket; run `sudo usermod -aG docker $USER` and log in again, or use --runtime podman"

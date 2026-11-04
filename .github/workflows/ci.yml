@@ -66,3 +66,28 @@ jobs:
           done
           sha256sum "$RUNNER_TEMP"/a/sapper "$RUNNER_TEMP"/b/sapper
           cmp "$RUNNER_TEMP"/a/sapper "$RUNNER_TEMP"/b/sapper
+
+  installers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: shellcheck install.sh (preinstalled on ubuntu runners)
+        run: shellcheck --version && shellcheck install.sh
+
+  installer-ps1:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: parse and PSScriptAnalyzer install.ps1
+        shell: pwsh
+        run: |
+          $errs = $null
+          [System.Management.Automation.Language.Parser]::ParseFile("$PWD/install.ps1", [ref]$null, [ref]$errs) | Out-Null
+          if ($errs) { $errs | Format-List; exit 1 }
+          if (-not (Get-Module -ListAvailable PSScriptAnalyzer)) { Install-Module PSScriptAnalyzer -Force -Scope CurrentUser }
+          $r = Invoke-ScriptAnalyzer -Path install.ps1 -Severity Error,Warning -ExcludeRule PSAvoidUsingWriteHost
+          if ($r) { $r | Format-Table -AutoSize; exit 1 }

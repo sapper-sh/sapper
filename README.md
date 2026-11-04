@@ -11,7 +11,20 @@ state.
 
 ## Install
 
-Requires Go 1.26+ to build, and [restic](https://restic.net) at run time.
+Linux, macOS, or inside WSL2:
+
+    curl -fsSL https://raw.githubusercontent.com/sapper-sh/sapper/main/install.sh | sh
+
+Windows (PowerShell; supported **through WSL2**, not natively; see [docs/WINDOWS.md](docs/WINDOWS.md)):
+
+    irm https://raw.githubusercontent.com/sapper-sh/sapper/main/install.ps1 | iex
+
+The installer verifies the release binary against `SHA256SUMS` (and cosign if
+installed), installs to `~/.local/bin` (or `/usr/local/bin` as root), and
+falls back to `go install` until the first release is tagged. Set
+`SAPPER_VERSION` to pin a release.
+
+From source: requires Go 1.26+ to build, and [restic](https://restic.net) at run time.
 docker or podman with the compose plugin is needed only for `sapper build --up`.
 
     go build -o sapper ./cmd/sapper
@@ -169,7 +182,7 @@ a flag value, never written by sapper, and never shown in `-v` command logs.
 | | Linux | macOS | Windows |
 |---|---|---|---|
 | init, validate, build (render), backup, breach, status | yes | yes | yes |
-| build --up (host the fortress) | yes | no, says to run on Linux | no, says to run on Linux |
+| build --up (host the fortress) | yes | no, says to run on Linux | via WSL2 (native: points you to WSL) |
 
 Colour follows [NO_COLOR](https://no-color.org), `--no-color` and `--plain`,
 and is off when stdout is not a terminal. On Windows, ANSI output is enabled
