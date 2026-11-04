@@ -10,12 +10,13 @@ import (
 // or chat. It holds the same facts as the terminal view. File paths from the snapshot
 // are untrusted, so they are cleaned and always placed in code spans.
 func Markdown(r *Report) string {
+	r = r.forDisplay()
 	var b strings.Builder
 	p := func(format string, a ...any) { fmt.Fprintf(&b, format, a...) }
 	at := func(t time.Time) string { return t.UTC().Format("2006-01-02 15:04:05 UTC") }
 
-	p("# Breach drill: %s %s\n\n", r.Fortress, r.Verdict)
-	p("**%s** %s\n\n", r.Headline, mdText(r.Why))
+	p("# Breach drill: %s %s\n\n", mdText(r.Fortress), mdText(r.Verdict))
+	p("**%s** %s\n\n", mdText(r.Headline), mdText(r.Why))
 
 	p("## What was tested\n\n")
 	if r.Snapshot.ID != "" {
@@ -30,7 +31,7 @@ func Markdown(r *Report) string {
 	p("- Repository: %s\n", code(r.Repo))
 	p("- Drill started %s and took %s\n", at(r.Started), Dur(ms(r.TookMS)))
 	for _, v := range r.Volumes {
-		p("- %s / %s: %s\n", v.App, v.Mount, code(v.Path))
+		p("- %s / %s: %s\n", mdText(v.App), mdText(v.Mount), code(v.Path))
 	}
 
 	if r.Verdict != NoVerdict {
@@ -103,6 +104,9 @@ func Markdown(r *Report) string {
 // code wraps untrusted text in a Markdown code span that it cannot break out of.
 func code(s string) string {
 	s = Clean(s)
+	if s == "" {
+		return "(none)"
+	}
 	fence := "`"
 	for strings.Contains(s, fence) {
 		fence += "`"

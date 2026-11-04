@@ -489,3 +489,15 @@ func TestFindingsAreOrderedBySeverity(t *testing.T) {
 		t.Errorf("why %q", r.Why)
 	}
 }
+
+// A report edited on disk is rendered through Clean, so it cannot drive the terminal.
+func TestTamperedReportFieldsAreCleaned(t *testing.T) {
+	r := Build(input())
+	r.Headline, r.Fortress, r.NextSteps = "fine\x1b[2J", "f\x1b]0;x\x07", []string{"run \x1b[31mthis"}
+	r.Evidence.ByKind = map[string]int{"\x1b[1m": 1}
+	for name, out := range allRenders(t, r) {
+		if strings.ContainsAny(out, "\x1b\x07") {
+			t.Errorf("%s: raw escape in output", name)
+		}
+	}
+}

@@ -3,6 +3,8 @@ package cli
 import (
 	"crypto/ed25519"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -69,10 +71,10 @@ reordered reports.`,
 				r := e.Report
 				signed := "no"
 				if r.Signature != nil {
-					signed = r.Signature.KeyID[:8]
+					signed = report.Clean(r.Signature.KeyID[:min(8, len(r.Signature.KeyID))])
 				}
-				fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%d\t%s\t%s\n", r.Seq, r.Started.Local().Format("2006-01-02 15:04"), r.Verdict,
-					orDash(r.Snapshot.Short()), r.Evidence.FindingsTotal, report.Clean(r.Hash[:min(12, len(r.Hash))]), signed)
+				fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%d\t%s\t%s\n", r.Seq, r.Started.Local().Format("2006-01-02 15:04"), report.Clean(r.Verdict),
+					orDash(report.Clean(r.Snapshot.Short())), r.Evidence.FindingsTotal, report.Clean(r.Hash[:min(12, len(r.Hash))]), signed)
 			}
 			return tw.Flush()
 		},
@@ -259,6 +261,15 @@ user that runs drills, and keep the public key somewhere else as well.`,
 			return nil
 		},
 	}
-	c.Flags().StringVarP(&out, "out", "o", "sapper-drill.key", "private key file to create")
+	c.Flags().StringVarP(&out, "out", "o", defaultKeyPath(), "private key file to create")
 	return c
+}
+
+// defaultKeyPath keeps the key in the user's config directory rather than the current
+// directory, which is often a git checkout where a key is easy to commit by accident.
+func defaultKeyPath() string {
+	if d, err := os.UserConfigDir(); err == nil {
+		return filepath.Join(d, "sapper", "drill.key")
+	}
+	return "sapper-drill.key"
 }

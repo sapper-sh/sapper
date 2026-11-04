@@ -51,6 +51,7 @@ var spaced = map[string]string{NoVerdict: "N O   V E R D I C T"}
 // then what was tested, the evidence, timings, recovery objectives, next steps and
 // the integrity record.
 func Terminal(r *Report, v View) string {
+	r = r.forDisplay()
 	w := v.width()
 	var b strings.Builder
 	box := art.Verdict{
@@ -182,6 +183,7 @@ func Terminal(r *Report, v View) string {
 
 // Brief is a one-line summary for logs, cron mail and status bars.
 func Brief(r *Report) string {
+	r = r.forDisplay()
 	parts := []string{r.Verdict, r.Fortress}
 	if r.Snapshot.ID != "" {
 		parts = append(parts, "snapshot "+r.Snapshot.Short())
@@ -206,6 +208,44 @@ func Brief(r *Report) string {
 		parts = append(parts, fmt.Sprintf("report #%d", r.Seq))
 	}
 	return strings.Join(parts, "  ")
+}
+
+// forDisplay returns a copy with every free-text field passed through Clean. Reports
+// read back from disk are only as trustworthy as the state directory, and a hand-edited
+// one must not be able to drive the terminal with escape sequences.
+func (r *Report) forDisplay() *Report {
+	c := *r
+	c.Fortress, c.Verdict, c.Headline, c.Why, c.Error, c.Repo = Clean(c.Fortress), Clean(c.Verdict), Clean(c.Headline), Clean(c.Why), Clean(c.Error), Clean(c.Repo)
+	c.Snapshot.ID, c.Hash, c.Prev = Clean(c.Snapshot.ID), Clean(c.Hash), Clean(c.Prev)
+	c.NextSteps = cleanAll(c.NextSteps)
+	c.Isolation.LiveChanged = cleanAll(c.Isolation.LiveChanged)
+	c.Isolation.KeptCopy = Clean(c.Isolation.KeptCopy)
+	c.Volumes = append([]Volume(nil), c.Volumes...)
+	for i, v := range c.Volumes {
+		c.Volumes[i] = Volume{Clean(v.App), Clean(v.Mount), Clean(v.Path)}
+	}
+	c.Phases = append([]Phase(nil), c.Phases...)
+	for i := range c.Phases {
+		c.Phases[i].Name = Clean(c.Phases[i].Name)
+	}
+	if c.Signature != nil {
+		sig := *c.Signature
+		sig.KeyID = Clean(sig.KeyID)
+		c.Signature = &sig
+	}
+	c.Evidence.ByKind = map[string]int{}
+	for k, n := range r.Evidence.ByKind {
+		c.Evidence.ByKind[Clean(k)] = n
+	}
+	return &c
+}
+
+func cleanAll(s []string) []string {
+	out := make([]string, len(s))
+	for i, x := range s {
+		out[i] = Clean(x)
+	}
+	return out
 }
 
 func objective(o Objective, what string) string {
