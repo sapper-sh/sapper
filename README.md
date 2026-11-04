@@ -233,3 +233,5 @@ build with the flags in `.github/workflows/release.yml` and compare the hash wit
 See [docs/NAME.md](docs/NAME.md) for the name and [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md) for what sapper does and does not defend against, [docs/CONTROLS.md](docs/CONTROLS.md) for the controls it supports, and [docs/KEYS.md](docs/KEYS.md) for the signing-key lifecycle.
 
 — the sapper of the unbuilt
+
+Support the project: see [SUPPORT.md](SUPPORT.md).
