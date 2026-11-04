@@ -103,3 +103,34 @@ func TestRedactRepo(t *testing.T) {
 		}
 	}
 }
+
+// restic passes the sftp host to ssh as its first argument; a leading '-' becomes an ssh
+// option such as ProxyCommand (compare kopia GHSA-2q4c-3mrw-63c3).
+func TestValidateRejectsRepoOptionInjection(t *testing.T) {
+	bad := []string{
+		"sftp:-oProxyCommand=touch$IFS/tmp/pwned:/x",
+		"sftp://-oProxyCommand=id/x",
+		"sftp:-oProxyCommand=id@host:/x",
+		"sftp:me@-oProxyCommand=id:/x",
+		"sftp:me@host x:/r",
+		"rclone:--config=/tmp/evil:x",
+		"-r",
+	}
+	for _, repo := range bad {
+		bp, err := Parse([]byte(rep("repository: ./backups/restic", "repository: '"+repo+"'")(Example)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		bp.Dir = t.TempDir()
+		if err := bp.Validate(); err == nil || !strings.Contains(err.Error(), "backup.repository") {
+			t.Errorf("%q: err = %v", repo, err)
+		}
+	}
+	for _, repo := range []string{"sftp:me@host:/srv/restic", "sftp://me@host:2222//srv/restic", "rclone:b2prod:bucket/path", "s3:https://s3.example/bucket-1"} {
+		bp, _ := Parse([]byte(rep("repository: ./backups/restic", "repository: '"+repo+"'")(Example)))
+		bp.Dir = t.TempDir()
+		if err := bp.Validate(); err != nil {
+			t.Errorf("%q rejected: %v", repo, err)
+		}
+	}
+}

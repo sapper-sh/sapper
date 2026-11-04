@@ -184,6 +184,8 @@ func (bp *Blueprint) Validate() error {
 		add("backup.repository: required")
 	} else if hasControl(bp.Backup.Repository) {
 		add("backup.repository: must not contain control characters such as newlines")
+	} else if err := checkRepoArgs(bp.Backup.Repository); err != nil {
+		add("backup.repository: %v", err)
 	}
 	if !envNameRE.MatchString(bp.Backup.PasswordEnv) {
 		add("backup.password_env: %q must be an environment variable name", bp.Backup.PasswordEnv)
@@ -308,6 +310,38 @@ func checkPathText(p string) error {
 	}
 	if strings.HasPrefix(p, "-") {
 		return errors.New("must not start with '-'")
+	}
+	return nil
+}
+
+// checkRepoArgs rejects sftp and rclone repositories whose host, user or remote would reach
+// ssh or rclone as a command-line option. restic passes the sftp host as ssh's first
+// argument, so "sftp:-oProxyCommand=..." runs an arbitrary command on backup.
+func checkRepoArgs(repo string) error {
+	if strings.HasPrefix(repo, "-") {
+		return errors.New("must not start with '-'")
+	}
+	var rest string
+	switch {
+	case strings.HasPrefix(repo, "sftp://"):
+		rest = strings.TrimPrefix(repo, "sftp://")
+	case strings.HasPrefix(repo, "sftp:"):
+		rest = strings.TrimPrefix(repo, "sftp:")
+	case strings.HasPrefix(repo, "rclone:"):
+		rest = strings.TrimPrefix(repo, "rclone:")
+	default:
+		return nil
+	}
+	if strings.ContainsAny(rest, " \t") {
+		return errors.New("sftp/rclone repository must not contain whitespace")
+	}
+	host := rest
+	if i := strings.IndexAny(host, ":/"); i >= 0 {
+		host = host[:i]
+	}
+	user, h, hasUser := strings.Cut(host, "@")
+	if strings.HasPrefix(rest, "-") || strings.HasPrefix(user, "-") || (hasUser && strings.HasPrefix(h, "-")) {
+		return errors.New("sftp/rclone host, user or remote must not start with '-'; it would be passed to ssh or rclone as an option")
 	}
 	return nil
 }
