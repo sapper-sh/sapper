@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -24,6 +25,8 @@ type Client struct {
 	Bin        string
 	Repository string
 	Password   string
+	// Log, when set, receives every command line before it runs. The password is never included.
+	Log io.Writer
 }
 
 // New locates restic and returns a client. password must be non-empty.
@@ -39,6 +42,9 @@ func New(repository, password string) (*Client, error) {
 }
 
 func (c *Client) cmd(ctx context.Context, args ...string) *exec.Cmd {
+	if c.Log != nil {
+		fmt.Fprintf(c.Log, "$ restic %s\n", strings.Join(args, " "))
+	}
 	cmd := exec.CommandContext(ctx, c.Bin, args...)
 	cmd.Env = append(filteredEnv(), "RESTIC_REPOSITORY="+c.Repository, "RESTIC_PASSWORD="+c.Password)
 	return cmd
