@@ -4,6 +4,7 @@ package cli
 import (
 	"bufio"
 	"context"
+	"crypto/ed25519"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,7 +14,6 @@ import (
 	"path/filepath"
 	goruntime "runtime"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 
@@ -22,6 +22,7 @@ import (
 	"github.com/sapper-unbuilt/sapper/internal/catalog"
 	"github.com/sapper-unbuilt/sapper/internal/compose"
 	"github.com/sapper-unbuilt/sapper/internal/ops"
+	"github.com/sapper-unbuilt/sapper/internal/report"
 	"github.com/sapper-unbuilt/sapper/internal/restic"
 	"github.com/sapper-unbuilt/sapper/internal/runtime"
 	"github.com/sapper-unbuilt/sapper/internal/termx"
@@ -96,7 +97,7 @@ captured at backup time. Drills never write to live data.`,
 		return cmd.Help()
 	}
 	root.Flags().Bool("no-anim", false, "skip the boot animation")
-	root.AddCommand(a.initCmd(), a.validateCmd(), a.buildCmd(), a.backupCmd(), a.breachCmd(), a.statusCmd())
+	root.AddCommand(a.initCmd(), a.validateCmd(), a.buildCmd(), a.backupCmd(), a.breachCmd(), a.reportsCmd(), a.keygenCmd(), a.statusCmd())
 	return root
 }
 
@@ -385,18 +386,26 @@ changes while it runs. The repository is initialised on first use.`,
 
 func (a *app) breachCmd() *cobra.Command {
 	var pw passwordFlags
-	var keep bool
-	var tmp string
+	var keep, brief bool
+	var tmp, signKey string
 	c := &cobra.Command{
 		Use:   "breach",
 		Short: "Restore the latest backup into a throwaway directory and verify it",
 		Long: `breach runs a drill: it restores the latest sapper snapshot into a new temporary
 directory, compares every file with the manifest captured at backup time, deletes
-the copy and prints SURVIVED or BREACHED. Live volumes are never written.
+the copy and prints an evidence report: the verdict and the reason first, then
+what was tested, what was found, how long each step took, recovery time and backup
+age against the blueprint's targets, and what to do next. Live volumes are never
+written.
+
+Every drill saves its report as JSON and Markdown in the state directory, chained
+by hash to the one before. See "sapper reports".
 
 Exit codes: 0 survived, 3 breached, 4 no verdict (no snapshot, manifest or restore).`,
 		Example: `  sapper breach
-  sapper breach --json
+  sapper breach --brief                      # one line, for cron mail
+  sapper breach --json | jq .verdict
+  sapper breach --sign-key ~/.config/sapper/drill.key
   sapper breach --keep --temp-dir /var/tmp   # leave the restored copy for inspection`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -404,25 +413,42 @@ Exit codes: 0 survived, 3 breached, 4 no verdict (no snapshot, manifest or resto
 			if err != nil {
 				return err
 			}
+			var key ed25519.PrivateKey
+			if signKey != "" {
+				k, warn, err := report.LoadPrivateKey(signKey)
+				if err != nil {
+					return withCode(ExitUsage, fmt.Errorf("--sign-key: %w", err))
+				}
+				if warn != "" {
+					fmt.Fprintln(a.stderr, "sapper: warning: "+warn)
+				}
+				key = k
+			}
 			c, err := a.client(&pw, bp)
 			if err != nil {
 				return err
 			}
 			a.logf("restoring latest snapshot into a throwaway directory")
-			rep, err := ops.Breach(cmd.Context(), bp, c, ops.DrillOptions{Keep: keep, TempRoot: tmp})
-			if err != nil && !errors.Is(err, ops.ErrBreached) {
-				return withCode(ExitUnverified, fmt.Errorf("drill did not reach a verdict: %w", err))
+			rep, err := ops.Breach(cmd.Context(), bp, c, ops.DrillOptions{Keep: keep, TempRoot: tmp, SignKey: key})
+			if rep.ReportErr != nil {
+				fmt.Fprintf(a.stderr, "sapper: warning: drill report not saved: %v\n", rep.ReportErr)
+			} else if rep.ReportPath != "" {
+				a.logf("report saved to %s", rep.ReportPath)
 			}
-			if a.jsonOut {
-				verdict := "SURVIVED"
-				if !rep.Survived() {
-					verdict = "BREACHED"
+			if r := rep.Report; r != nil {
+				switch {
+				case a.jsonOut:
+					if e := a.printJSON(r); e != nil {
+						return e
+					}
+				case brief:
+					fmt.Fprintln(a.stdout, report.Brief(r))
+				default:
+					fmt.Fprint(a.stdout, report.Terminal(r, a.reportView(rep.ReportPath)))
 				}
-				if e := a.printJSON(map[string]any{"verdict": verdict, "report": rep}); e != nil {
-					return e
-				}
-			} else {
-				fmt.Fprint(a.stdout, a.verdict(rep).Render(a.style.Color))
+			}
+			if err != nil && !errors.Is(err, ops.ErrBreached) {
+				return withCode(ExitUnverified, fmt.Errorf("drill did not reach a verdict: %s", report.CleanLines(err.Error())))
 			}
 			if !rep.Survived() {
 				return withCode(ExitBreached, fmt.Errorf("%s in snapshot %s", plural(len(rep.Problems), "problem"), short(rep.Snapshot)))
@@ -433,27 +459,13 @@ Exit codes: 0 survived, 3 breached, 4 no verdict (no snapshot, manifest or resto
 	pw.add(c)
 	c.Flags().BoolVar(&keep, "keep", false, "keep the restored copy and print its path")
 	c.Flags().StringVar(&tmp, "temp-dir", "", "parent directory for the throwaway restore (default: system temp)")
+	c.Flags().BoolVar(&brief, "brief", false, "print a one-line summary instead of the full report")
+	c.Flags().StringVar(&signKey, "sign-key", envOr("SAPPER_SIGN_KEY", ""), "sign the report with this ed25519 private key file (env SAPPER_SIGN_KEY; see sapper keygen)")
 	return c
 }
 
-func (a *app) verdict(rep ops.DrillReport) art.Verdict {
-	lines := []string{
-		fmt.Sprintf("snapshot   %s  (%s)", short(rep.Snapshot), rep.SnapshotAt),
-		fmt.Sprintf("verified   %d entries, %s", rep.Checked, humanBytes(rep.Bytes)),
-		fmt.Sprintf("duration   %s", rep.Duration.Round(10*time.Millisecond)),
-	}
-	if rep.RestoreDir != "" {
-		lines = append(lines, "kept copy  "+rep.RestoreDir)
-	}
-	const maxShown = 10
-	for i, p := range rep.Problems {
-		if i == maxShown {
-			lines = append(lines, fmt.Sprintf("... and %d more", len(rep.Problems)-maxShown))
-			break
-		}
-		lines = append(lines, fmt.Sprintf("FAIL  %s: %s", p.Path, p.Reason))
-	}
-	return art.Verdict{Survived: rep.Survived(), Title: "BREACH DRILL // " + rep.Fortress, Lines: lines}
+func (a *app) reportView(path string) report.View {
+	return report.View{Color: a.style.Color, Width: a.style.Width, Path: path, Plain: a.plain}
 }
 
 func plural(n int, word string) string {
