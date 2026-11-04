@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -167,7 +168,7 @@ func TestChainVerifies(t *testing.T) {
 	}
 	for _, e := range all {
 		st, err := os.Stat(e.Path)
-		if err != nil || st.Mode().Perm() != 0o600 {
+		if err != nil || (runtime.GOOS != "windows" && st.Mode().Perm() != 0o600) {
 			t.Errorf("%s: mode %v %v", e.Path, st.Mode(), err)
 		}
 		if _, err := os.Stat(strings.TrimSuffix(e.Path, ".json") + ".md"); err != nil {
@@ -255,7 +256,7 @@ func TestSigning(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if st, _ := os.Stat(keyPath); st.Mode().Perm() != 0o600 {
+	if st, _ := os.Stat(keyPath); runtime.GOOS != "windows" && st.Mode().Perm() != 0o600 {
 		t.Errorf("private key mode %v", st.Mode().Perm())
 	}
 	if _, _, err := GenerateKey(keyPath, nil); err == nil {
@@ -312,6 +313,9 @@ func TestSigning(t *testing.T) {
 }
 
 func TestLoadPrivateKeyWarnsAndHidesContents(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no POSIX permission bits on Windows; LoadPrivateKey does not warn there")
+	}
 	dir := t.TempDir()
 	p := filepath.Join(dir, "k")
 	if _, _, err := GenerateKey(p, nil); err != nil {

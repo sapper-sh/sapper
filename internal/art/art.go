@@ -75,7 +75,7 @@ func Render(lines []string, color bool) string {
 }
 
 func split(s string) []string {
-	return strings.Split(strings.TrimRight(s, "\n"), "\n")
+	return strings.Split(strings.TrimRight(strings.ReplaceAll(s, "\r\n", "\n"), "\n"), "\n")
 }
 
 // RGB is a 24-bit colour.

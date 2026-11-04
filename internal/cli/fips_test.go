@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -21,6 +22,9 @@ func TestFIPSBuild(t *testing.T) {
 	}
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "sapper")
+	if runtime.GOOS == "windows" {
+		bin += ".exe"
+	}
 	build := exec.Command(gobin, "build", "-o", bin, "../../cmd/sapper")
 	build.Env = append(os.Environ(), "GOFIPS140=v1.0.0", "CGO_ENABLED=0")
 	if out, err := build.CombinedOutput(); err != nil {

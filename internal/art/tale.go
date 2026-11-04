@@ -53,5 +53,5 @@ func TaleArt(name string, ascii bool) []string {
 	if err != nil {
 		return nil
 	}
-	return strings.Split(strings.TrimRight(string(b), "\n"), "\n")
+	return strings.Split(strings.TrimRight(strings.ReplaceAll(string(b), "\r\n", "\n"), "\n"), "\n")
 }

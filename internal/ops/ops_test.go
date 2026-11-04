@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/sapper-sh/sapper/internal/blueprint"
+	"github.com/sapper-sh/sapper/internal/manifest"
 	"github.com/sapper-sh/sapper/internal/paths"
 	"github.com/sapper-sh/sapper/internal/restic"
 )
@@ -25,7 +26,7 @@ func (f *fakeRestic) Forget(context.Context, string, int) error { return nil }
 
 func (f *fakeRestic) Backup(_ context.Context, ps, _ []string) (string, error) {
 	for _, p := range ps {
-		if err := copyDir(p, filepath.Join(f.snapDir, p)); err != nil {
+		if err := copyDir(p, manifest.RestoredPath(f.snapDir, p)); err != nil {
 			return "", err
 		}
 	}
