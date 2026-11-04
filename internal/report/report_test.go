@@ -11,8 +11,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/sapper-unbuilt/sapper/internal/art"
-	"github.com/sapper-unbuilt/sapper/internal/manifest"
+	"github.com/sapper-sh/sapper/internal/art"
+	"github.com/sapper-sh/sapper/internal/manifest"
 )
 
 const snapID = "3f9a1c2e7b5d4c0a9e8f1d2c3b4a5f6e7d8c9b0a1f2e3d4c5b6a7f8e9d0c1b2a"

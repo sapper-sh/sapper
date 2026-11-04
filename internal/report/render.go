@@ -7,7 +7,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/sapper-unbuilt/sapper/internal/art"
+	"github.com/sapper-sh/sapper/internal/art"
 )
 
 // MaxWidth is the widest the terminal report gets, even on a wide terminal: long lines

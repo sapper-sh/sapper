@@ -8,7 +8,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/sapper-unbuilt/sapper/internal/blueprint"
+	"github.com/sapper-sh/sapper/internal/blueprint"
 )
 
 func example(t *testing.T) *blueprint.Blueprint {

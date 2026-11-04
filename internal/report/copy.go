@@ -8,7 +8,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/sapper-unbuilt/sapper/internal/manifest"
+	"github.com/sapper-sh/sapper/internal/manifest"
 )
 
 // The wording here follows a few rules: verdict first, then the one fact that decides

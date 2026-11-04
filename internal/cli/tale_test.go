@@ -10,10 +10,10 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/sapper-unbuilt/sapper/internal/art"
-	"github.com/sapper-unbuilt/sapper/internal/blueprint"
-	"github.com/sapper-unbuilt/sapper/internal/manifest"
-	"github.com/sapper-unbuilt/sapper/internal/ops"
+	"github.com/sapper-sh/sapper/internal/art"
+	"github.com/sapper-sh/sapper/internal/blueprint"
+	"github.com/sapper-sh/sapper/internal/manifest"
+	"github.com/sapper-sh/sapper/internal/ops"
 )
 
 func writeDrill(t *testing.T, bpPath string, d ops.DrillReport) {

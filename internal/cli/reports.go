@@ -12,8 +12,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sapper-unbuilt/sapper/internal/ops"
-	"github.com/sapper-unbuilt/sapper/internal/report"
+	"github.com/sapper-sh/sapper/internal/ops"
+	"github.com/sapper-sh/sapper/internal/report"
 )
 
 func (a *app) reportsCmd() *cobra.Command {

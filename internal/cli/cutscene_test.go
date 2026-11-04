@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sapper-unbuilt/sapper/internal/art"
+	"github.com/sapper-sh/sapper/internal/art"
 )
 
 func TestScreenRestoreOnce(t *testing.T) {

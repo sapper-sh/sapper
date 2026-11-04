@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sapper-unbuilt/sapper/internal/blueprint"
-	"github.com/sapper-unbuilt/sapper/internal/paths"
+	"github.com/sapper-sh/sapper/internal/blueprint"
+	"github.com/sapper-sh/sapper/internal/paths"
 )
 
 type result struct {

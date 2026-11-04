@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sapper-unbuilt/sapper/internal/manifest"
+	"github.com/sapper-sh/sapper/internal/manifest"
 )
 
 func tree(t *testing.T, files map[string][]byte) (string, *manifest.Manifest) {

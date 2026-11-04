@@ -60,7 +60,7 @@ jobs:
       - name: build twice with separate caches and compare
         run: |
           set -euo pipefail
-          flags="-s -w -buildid= -X github.com/sapper-unbuilt/sapper/internal/cli.Version=ci"
+          flags="-s -w -buildid= -X github.com/sapper-sh/sapper/internal/cli.Version=ci"
           for d in a b; do
             GOCACHE="$RUNNER_TEMP/cache-$d" CGO_ENABLED=0 go build -trimpath -ldflags "$flags" -o "$RUNNER_TEMP/$d/sapper" ./cmd/sapper
           done

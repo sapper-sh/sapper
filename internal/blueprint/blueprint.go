@@ -18,7 +18,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/sapper-unbuilt/sapper/internal/catalog"
+	"github.com/sapper-sh/sapper/internal/catalog"
 )
 
 // FileName is the default blueprint file name.

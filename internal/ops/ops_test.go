@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sapper-unbuilt/sapper/internal/blueprint"
-	"github.com/sapper-unbuilt/sapper/internal/paths"
-	"github.com/sapper-unbuilt/sapper/internal/restic"
+	"github.com/sapper-sh/sapper/internal/blueprint"
+	"github.com/sapper-sh/sapper/internal/paths"
+	"github.com/sapper-sh/sapper/internal/restic"
 )
 
 // fakeRestic stores one snapshot by copying volumes, so ops logic can be tested without restic.

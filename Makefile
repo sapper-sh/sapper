@@ -1,6 +1,6 @@
 BIN      := sapper
 VERSION  ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
-LDFLAGS  := -s -w -buildid= -X github.com/sapper-unbuilt/sapper/internal/cli.Version=$(VERSION)
+LDFLAGS  := -s -w -buildid= -X github.com/sapper-sh/sapper/internal/cli.Version=$(VERSION)
 PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64
 
 .PHONY: build test check cross clean repro fips

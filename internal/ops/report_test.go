@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sapper-unbuilt/sapper/internal/manifest"
-	"github.com/sapper-unbuilt/sapper/internal/report"
-	"github.com/sapper-unbuilt/sapper/internal/restic"
+	"github.com/sapper-sh/sapper/internal/manifest"
+	"github.com/sapper-sh/sapper/internal/report"
+	"github.com/sapper-sh/sapper/internal/restic"
 )
 
 func TestEveryDrillLeavesAChainedReport(t *testing.T) {

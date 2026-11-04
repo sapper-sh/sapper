@@ -4,7 +4,7 @@ package main
 import (
 	"os"
 
-	"github.com/sapper-unbuilt/sapper/internal/cli"
+	"github.com/sapper-sh/sapper/internal/cli"
 )
 
 func main() {

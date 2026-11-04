@@ -7,7 +7,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/sapper-unbuilt/sapper/internal/blueprint"
+	"github.com/sapper-sh/sapper/internal/blueprint"
 )
 
 // FuzzRender checks that any blueprint passing validation renders files whose structure

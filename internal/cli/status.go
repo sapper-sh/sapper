@@ -9,9 +9,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sapper-unbuilt/sapper/internal/art"
-	"github.com/sapper-unbuilt/sapper/internal/ops"
-	"github.com/sapper-unbuilt/sapper/internal/termx"
+	"github.com/sapper-sh/sapper/internal/art"
+	"github.com/sapper-sh/sapper/internal/ops"
+	"github.com/sapper-sh/sapper/internal/termx"
 )
 
 type statusView struct {

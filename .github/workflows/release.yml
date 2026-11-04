@@ -27,7 +27,7 @@ jobs:
           export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
           export CGO_ENABLED=0
           v="${GITHUB_REF_NAME}"
-          flags="-s -w -buildid= -X github.com/sapper-unbuilt/sapper/internal/cli.Version=$v"
+          flags="-s -w -buildid= -X github.com/sapper-sh/sapper/internal/cli.Version=$v"
           mkdir -p dist
           for p in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
             os=${p%/*}; arch=${p#*/}; ext=; [ "$os" = windows ] && ext=.exe

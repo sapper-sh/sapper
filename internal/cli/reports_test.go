@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sapper-unbuilt/sapper/internal/paths"
+	"github.com/sapper-sh/sapper/internal/paths"
 )
 
 // TestReportsEndToEnd drives drills, signing and chain verification through the CLI with real restic.

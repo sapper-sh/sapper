@@ -1,4 +1,4 @@
-module github.com/sapper-unbuilt/sapper
+module github.com/sapper-sh/sapper
 
 go 1.26.0
 

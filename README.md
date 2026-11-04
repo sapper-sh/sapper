@@ -215,16 +215,16 @@ The pictures are drawn by `scripts/taleart.py` and the recording is made with
 Release binaries are built reproducibly (`CGO_ENABLED=0`, `-trimpath`,
 `-buildid=`, `SOURCE_DATE_EPOCH` from the tagged commit), listed in `SHA256SUMS`,
 signed with cosign keyless signing, and come with SLSA level 3 provenance and
-CycloneDX SBOMs. Replace `<OWNER>` and the version:
+CycloneDX SBOMs. Replace the version:
 
     sha256sum -c --ignore-missing SHA256SUMS
     cosign verify-blob SHA256SUMS \
       --bundle SHA256SUMS.sigstore.json \
-      --certificate-identity "https://github.com/<OWNER>/sapper/.github/workflows/release.yml@refs/tags/v1.0.0" \
+      --certificate-identity "https://github.com/sapper-sh/sapper/.github/workflows/release.yml@refs/tags/v1.0.0" \
       --certificate-oidc-issuer https://token.actions.githubusercontent.com
     slsa-verifier verify-artifact sapper-v1.0.0-linux-amd64 \
       --provenance-path multiple.intoto.jsonl \
-      --source-uri github.com/<OWNER>/sapper --source-tag v1.0.0
+      --source-uri github.com/sapper-sh/sapper --source-tag v1.0.0
 
 To check reproducibility yourself, check out the tag and run `make repro`, or
 build with the flags in `.github/workflows/release.yml` and compare the hash with

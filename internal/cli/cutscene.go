@@ -10,7 +10,7 @@ import (
 
 	"golang.org/x/term"
 
-	"github.com/sapper-unbuilt/sapper/internal/art"
+	"github.com/sapper-sh/sapper/internal/art"
 )
 
 // screen owns the terminal while the cutscene plays: alternate screen, hidden cursor,

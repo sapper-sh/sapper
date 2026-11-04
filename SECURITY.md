@@ -2,13 +2,13 @@
 
 ## Reporting a vulnerability
 
-> **TODO (author):** replace `<OWNER>` below and in `.well-known/security.txt`
-> with the real GitHub owner, and add a contact address, before publishing.
-
 Please report vulnerabilities privately through GitHub's private vulnerability
 reporting: **Security → Report a vulnerability** on the sapper repository
-(`https://github.com/<OWNER>/sapper/security/advisories/new`). Do not open a
+(`https://github.com/sapper-sh/sapper/security/advisories/new`). Do not open a
 public issue.
+
+There is no security email address yet; one may be added here later. Until
+then, GitHub private vulnerability reporting is the only channel.
 
 Include the sapper version (`sapper --version`), OS, restic and docker/podman
 versions, and a minimal blueprint or steps that reproduce the problem.
@@ -32,7 +32,7 @@ the advisory unless they ask not to be.
 Confirmed vulnerabilities in a released version get a GitHub Security Advisory
 and a CVE requested through GitHub as the CNA. Each advisory names the affected
 and fixed versions, the CWE (for example CWE-22 for path traversal), a CVSS v4.0
-vector, and the CPE `cpe:2.3:a:<OWNER>:sapper:*:*:*:*:*:*:*:*` with the affected
+vector, and the CPE `cpe:2.3:a:sapper-sh:sapper:*:*:*:*:*:*:*:*` with the affected
 version range. Fixes are also reported to the Go vulnerability database so
 `govulncheck` users are warned.
 

@@ -9,8 +9,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/sapper-unbuilt/sapper/internal/blueprint"
-	"github.com/sapper-unbuilt/sapper/internal/catalog"
+	"github.com/sapper-sh/sapper/internal/blueprint"
+	"github.com/sapper-sh/sapper/internal/catalog"
 )
 
 // File is the subset of the compose specification sapper writes.

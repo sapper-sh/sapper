@@ -15,10 +15,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sapper-unbuilt/sapper/internal/manifest"
-	"github.com/sapper-unbuilt/sapper/internal/ops"
-	"github.com/sapper-unbuilt/sapper/internal/paths"
-	"github.com/sapper-unbuilt/sapper/internal/report"
+	"github.com/sapper-sh/sapper/internal/manifest"
+	"github.com/sapper-sh/sapper/internal/ops"
+	"github.com/sapper-sh/sapper/internal/paths"
+	"github.com/sapper-sh/sapper/internal/report"
 )
 
 // damageDrill classifies a drill run after the repository was damaged: anything but
