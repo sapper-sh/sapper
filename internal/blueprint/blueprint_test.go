@@ -12,14 +12,15 @@ func TestExampleIsValid(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bp.Dir = "/srv/f"
+	dir := t.TempDir()
+	bp.Dir = dir
 	if err := bp.Validate(); err != nil {
 		t.Fatalf("example blueprint invalid: %v", err)
 	}
-	if got, want := bp.HostPath("memos"), "/srv/f/data/memos"; got != want {
+	if got, want := bp.HostPath("memos"), filepath.Join(dir, "data", "memos"); got != want {
 		t.Errorf("HostPath = %q, want %q", got, want)
 	}
-	if got, want := bp.RepoLocation(), "/srv/f/backups/restic"; got != want {
+	if got, want := bp.RepoLocation(), filepath.Join(dir, "backups", "restic"); got != want {
 		t.Errorf("RepoLocation = %q, want %q", got, want)
 	}
 }
@@ -52,7 +53,7 @@ func TestValidate(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			bp.Dir = "/srv/f"
+			bp.Dir = t.TempDir()
 			err = bp.Validate()
 			if tc.wantErr == "" {
 				if err != nil {
@@ -103,6 +104,7 @@ func TestWithin(t *testing.T) {
 		{"/a", "/a/../b", false},
 	}
 	for _, tc := range tests {
+		tc.parent, tc.child = filepath.FromSlash(tc.parent), filepath.FromSlash(tc.child)
 		if got := within(tc.parent, tc.child); got != tc.want {
 			t.Errorf("within(%q,%q) = %v, want %v", tc.parent, tc.child, got, tc.want)
 		}

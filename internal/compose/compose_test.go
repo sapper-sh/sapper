@@ -12,12 +12,16 @@ import (
 )
 
 func example(t *testing.T) *blueprint.Blueprint {
+	return exampleIn(t, t.TempDir())
+}
+
+func exampleIn(t *testing.T, dir string) *blueprint.Blueprint {
 	t.Helper()
 	bp, err := blueprint.Parse([]byte(blueprint.Example))
 	if err != nil {
 		t.Fatal(err)
 	}
-	bp.Dir = "/srv/f"
+	bp.Dir = dir
 	if err := bp.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -25,7 +29,9 @@ func example(t *testing.T) *blueprint.Blueprint {
 }
 
 func TestBuild(t *testing.T) {
-	f, err := Build(example(t))
+	dir := t.TempDir()
+	d := func(p string) string { return filepath.Join(dir, "data", filepath.FromSlash(p)) }
+	f, err := Build(exampleIn(t, dir))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,9 +39,9 @@ func TestBuild(t *testing.T) {
 		svc, port string
 		volumes   []string
 	}{
-		{"vaultwarden", "127.0.0.1:8081:80", []string{"/srv/f/data/vaultwarden:/data"}},
-		{"filebrowser", "127.0.0.1:8082:80", []string{"/srv/f/data/filebrowser/files:/srv", "/srv/f/data/filebrowser/database:/database"}},
-		{"memos", "127.0.0.1:8083:5230", []string{"/srv/f/data/memos:/var/opt/memos"}},
+		{"vaultwarden", "127.0.0.1:8081:80", []string{d("vaultwarden") + ":/data"}},
+		{"filebrowser", "127.0.0.1:8082:80", []string{d("filebrowser/files") + ":/srv", d("filebrowser/database") + ":/database"}},
+		{"memos", "127.0.0.1:8083:5230", []string{d("memos") + ":/var/opt/memos"}},
 	}
 	for _, tc := range tests {
 		s, ok := f.Services[tc.svc]

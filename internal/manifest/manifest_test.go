@@ -3,6 +3,7 @@ package manifest
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -13,7 +14,9 @@ func fixture(t *testing.T) string {
 	must(t, os.MkdirAll(filepath.Join(root, "sub", "empty"), 0o755))
 	must(t, os.WriteFile(filepath.Join(root, "a.txt"), []byte("alpha"), 0o644))
 	must(t, os.WriteFile(filepath.Join(root, "sub", "b.bin"), []byte{0, 1, 2}, 0o600))
-	must(t, os.Symlink("a.txt", filepath.Join(root, "link")))
+	if err := os.Symlink("a.txt", filepath.Join(root, "link")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
 	return root
 }
 
@@ -24,7 +27,7 @@ func copyTree(t *testing.T, root, base string) {
 		if err != nil {
 			return err
 		}
-		dst := filepath.Join(base, p)
+		dst := RestoredPath(base, p)
 		switch {
 		case info.Mode()&os.ModeSymlink != 0:
 			tgt, _ := os.Readlink(p)
@@ -65,6 +68,9 @@ func TestVerify(t *testing.T) {
 			must(t, os.WriteFile(filepath.Join(r, "intruder"), nil, 0o644))
 		}, "unexpected in restore"},
 		{"mode changed", func(t *testing.T, r string) {
+			if runtime.GOOS == "windows" {
+				t.Skip("permissions are not compared on Windows")
+			}
 			must(t, os.Chmod(filepath.Join(r, "a.txt"), 0o600))
 		}, "mode"},
 		{"symlink retargeted", func(t *testing.T, r string) {
@@ -83,7 +89,7 @@ func TestVerify(t *testing.T) {
 			must(t, err)
 			base := t.TempDir()
 			copyTree(t, root, base)
-			tc.mutate(t, filepath.Join(base, root))
+			tc.mutate(t, RestoredPath(base, root))
 			res, err := Verify(m, base)
 			must(t, err)
 			if tc.want == "" {

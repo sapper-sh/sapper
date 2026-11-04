@@ -11,7 +11,9 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
+	"strings"
 )
 
 // Kind of a manifest entry.
@@ -136,7 +138,7 @@ func Verify(m *Manifest, base string) (Result, error) {
 	sort.Strings(paths)
 	for _, p := range paths {
 		want := m.Entries[p]
-		got, err := statEntry(filepath.Join(base, p))
+		got, err := statEntry(RestoredPath(base, p))
 		r.Checked++
 		switch {
 		case errors.Is(err, fs.ErrNotExist):
@@ -151,8 +153,12 @@ func Verify(m *Manifest, base string) (Result, error) {
 		}
 		r.Bytes += got.Size
 	}
+	expected := make(map[string]bool, len(m.Entries))
+	for p := range m.Entries {
+		expected[RestoredPath(base, p)] = true
+	}
 	for _, root := range m.Roots {
-		rroot := filepath.Join(base, root)
+		rroot := RestoredPath(base, root)
 		err := filepath.WalkDir(rroot, func(rp string, _ fs.DirEntry, err error) error {
 			if err != nil {
 				if errors.Is(err, fs.ErrNotExist) && rp == rroot {
@@ -160,9 +166,8 @@ func Verify(m *Manifest, base string) (Result, error) {
 				}
 				return err
 			}
-			orig := "/" + mustRel(base, rp)
-			if _, ok := m.Entries[filepath.Clean(orig)]; !ok {
-				r.Problems = append(r.Problems, Problem{filepath.Clean(orig), "unexpected in restore"})
+			if !expected[rp] {
+				r.Problems = append(r.Problems, Problem{rp, "unexpected in restore"})
 			}
 			return nil
 		})
@@ -183,7 +188,7 @@ func compare(want, got Entry) string {
 		return "checksum mismatch"
 	case want.Target != got.Target:
 		return fmt.Sprintf("symlink target %q, expected %q", got.Target, want.Target)
-	case want.Mode != got.Mode:
+	case runtime.GOOS != "windows" && want.Mode != got.Mode:
 		return fmt.Sprintf("mode %v, expected %v", got.Mode, want.Mode)
 	}
 	return ""
@@ -197,12 +202,13 @@ func statEntry(p string) (Entry, error) {
 	return entryFor(p, fs.FileInfoToDirEntry(info))
 }
 
-func mustRel(base, p string) string {
-	r, err := filepath.Rel(base, p)
-	if err != nil {
-		return p
+// RestoredPath returns where restic places original absolute path p when restoring into base.
+// On Windows restic maps a volume such as C: to a directory named C.
+func RestoredPath(base, p string) string {
+	if v := filepath.VolumeName(p); v != "" {
+		return filepath.Join(base, strings.TrimSuffix(v, ":"), p[len(v):])
 	}
-	return r
+	return filepath.Join(base, p)
 }
 
 // Save writes m as JSON with private permissions.
