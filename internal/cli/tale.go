@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"github.com/sapper-unbuilt/sapper/internal/art"
 	"github.com/sapper-unbuilt/sapper/internal/ops"
@@ -41,6 +42,17 @@ func (a *app) tell(noAnim bool, now time.Time) {
 	w := a.stdout
 	ascii := a.plain || !utf8Locale(os.Getenv)
 	animate := a.style.Color && a.style.TTY && !noAnim && !a.plain && os.Getenv("SAPPER_NO_ANIM") == ""
+	if animate && !ascii && a.fitsCutscene() {
+		ending, panel := a.taleEnding(now)
+		e := map[string]art.Ending{"survived": art.EndSurvived, "breached": art.EndBreached}[panel]
+		a.runCutscene(art.NewCutscene(e, ending, uint64(now.UnixNano())))
+		fmt.Fprintln(w, "\n  The Tale of sapper, the Backup Knight")
+		for _, l := range wrapWords(ending, 74) {
+			fmt.Fprintln(w, "  "+l)
+		}
+		fmt.Fprintln(w, "\n  The end.")
+		return
+	}
 	skip := make(chan struct{})
 	if animate {
 		if f, ok := a.stdin.(*os.File); ok && termx.IsTTY(f) {
@@ -169,3 +181,15 @@ func wrapWords(s string, n int) []string {
 	}
 	return append(out, line)
 }
+
+// fitsCutscene reports whether stdout is a terminal of at least the cutscene's size.
+func (a *app) fitsCutscene() bool {
+	f, ok := a.stdout.(*os.File)
+	if !ok {
+		return false
+	}
+	w, h, err := term.GetSize(int(f.Fd()))
+	return err == nil && cutsceneFits(w, h)
+}
+
+func cutsceneFits(w, h int) bool { return w >= art.SceneW && h >= art.CutH }
