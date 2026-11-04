@@ -53,6 +53,9 @@ func TestWriteTightensExistingDir(t *testing.T) {
 }
 
 func TestRenderRefusesShellMetaInRepoLocation(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("restic.env is not sourced on Windows")
+	}
 	bp := example(t)
 	bp.Dir = "/srv/$(id)"
 	bp.Drill.Schedule = ""

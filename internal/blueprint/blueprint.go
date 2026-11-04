@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	goruntime "runtime"
 	"sort"
 	"strings"
 	"unicode/utf8"
@@ -323,12 +324,11 @@ const shellMeta = " \t$`\"'\\;&|<>(){}*?[]!"
 // CheckEnvValue rejects values that would run commands or split words if restic.env is
 // sourced by a POSIX shell.
 func CheckEnvValue(v string) error {
-	meta := shellMeta
-	if filepath.Separator == '\\' {
-		// Windows paths use '\'; restic.env there is not sourced by a POSIX shell.
-		meta = strings.ReplaceAll(meta, "\\", "")
+	if goruntime.GOOS == "windows" {
+		// Windows paths use '\' and often spaces; restic.env there is not sourced by a POSIX shell.
+		return nil
 	}
-	if i := strings.IndexAny(v, meta); i >= 0 {
+	if i := strings.IndexAny(v, shellMeta); i >= 0 {
 		return fmt.Errorf("must not contain whitespace or shell metacharacters (found %q); restic.env must be safe to source", v[i])
 	}
 	return nil
