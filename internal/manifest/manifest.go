@@ -184,7 +184,7 @@ func Verify(m *Manifest, base string) (Result, error) {
 		got, err := statEntry(rp)
 		switch {
 		case errors.Is(err, fs.ErrNotExist):
-			r.Problems = append(r.Problems, Problem{Path: p, Kind: ProblemMissing, Reason: "missing", Expected: want.Kind})
+			r.Problems = append(r.Problems, Problem{Path: p, Kind: ProblemMissing, Reason: "missing", Expected: want.Kind, Actual: "absent"})
 			continue
 		case err != nil:
 			return r, err
