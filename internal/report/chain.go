@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"sort"
 	"strconv"
+	"strings"
 )
 
 // Store keeps a fortress's reports as NNNNNN.json (what the chain hashes) and
@@ -144,6 +145,29 @@ type Issue struct {
 // valid. With pub set, every report must be signed by that key. With head set, the newest
 // report's hash must start with it, which catches the newest reports being deleted.
 func VerifyChain(entries []Entry, pub ed25519.PublicKey, head string) []Issue {
+	o := VerifyOptions{Head: head}
+	if pub != nil {
+		o.Keys = []ed25519.PublicKey{pub}
+	}
+	return VerifyChainWith(entries, o)
+}
+
+// VerifyOptions configures VerifyChainWith.
+type VerifyOptions struct {
+	// Keys, when not empty, are the trusted public keys: every report must be signed
+	// by one of them. Several keys allow a chain that spans a key rotation.
+	Keys []ed25519.PublicKey
+	// Revoked holds key IDs (see KeyID) that must no longer be trusted. Any report
+	// signed by a revoked key is reported, whatever its date, because a leaked key
+	// can sign a report with any date.
+	Revoked map[string]bool
+	// Head is the expected hash (or prefix of at least 8 characters) of the newest report.
+	Head string
+}
+
+// VerifyChainWith is VerifyChain with several trusted keys and a revocation list.
+func VerifyChainWith(entries []Entry, o VerifyOptions) []Issue {
+	head := o.Head
 	var issues []Issue
 	add := func(e Entry, format string, a ...any) {
 		issues = append(issues, Issue{e.Seq, e.Path, fmt.Sprintf(format, a...)})
@@ -172,8 +196,10 @@ func VerifyChain(entries []Entry, pub ed25519.PublicKey, head string) []Issue {
 		if prevHash != "" && r.Prev != prevHash {
 			add(e, "does not follow the report before it (prev %s, expected %s)", ShortHash(Clean(r.Prev)), ShortHash(prevHash))
 		}
-		if err := r.CheckSignature(pub); err != nil {
+		if err := checkAnySignature(r, o.Keys); err != nil {
 			add(e, "signature: %v", err)
+		} else if r.Signature != nil && o.Revoked[r.Signature.KeyID] {
+			add(e, "signed by revoked key %s", Clean(r.Signature.KeyID))
 		}
 		prevHash = r.Hash
 	}
@@ -185,4 +211,47 @@ func VerifyChain(entries []Entry, pub ed25519.PublicKey, head string) []Issue {
 		}
 	}
 	return issues
+}
+
+// checkAnySignature accepts a report signed by any of keys; with no keys it checks
+// the signature against the embedded public key only.
+func checkAnySignature(r *Report, keys []ed25519.PublicKey) error {
+	if len(keys) == 0 {
+		return r.CheckSignature(nil)
+	}
+	var first error
+	for _, k := range keys {
+		err := r.CheckSignature(k)
+		if err == nil {
+			return nil
+		}
+		if first == nil {
+			first = err
+		}
+	}
+	if len(keys) > 1 && r.Signature != nil {
+		return fmt.Errorf("signed by key %s, which is not one of the %d trusted keys", Clean(r.Signature.KeyID), len(keys))
+	}
+	return first
+}
+
+// ParseRevocations reads a revocation list: one key ID (16 hex characters, as
+// printed by keygen) per line. Blank lines and text after '#' are ignored.
+func ParseRevocations(data []byte) (map[string]bool, error) {
+	out := map[string]bool{}
+	for n, line := range strings.Split(string(data), "\n") {
+		if i := strings.IndexByte(line, '#'); i >= 0 {
+			line = line[:i]
+		}
+		f := strings.Fields(line)
+		if len(f) == 0 {
+			continue
+		}
+		id := strings.ToLower(f[0])
+		if len(f) != 1 || len(id) != 16 || strings.Trim(id, "0123456789abcdef") != "" {
+			return nil, fmt.Errorf("line %d: want one 16-character hex key ID", n+1)
+		}
+		out[id] = true
+	}
+	return out, nil
 }

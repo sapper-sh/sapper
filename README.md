@@ -2,7 +2,8 @@
 
 sapper runs self-hosted apps from one blueprint file, backs them up with restic,
 and regularly proves the backups by restoring them into a throwaway directory
-and checking every file. It prints SURVIVED or BREACHED.
+and checking every file. It prints SURVIVED or BREACHED, or NO VERDICT when the
+drill could not run (no snapshot, no manifest, or a failed restore).
 
 Drills only ever write to a fresh temporary directory. sapper refuses to run a
 drill whose restore directory overlaps a data volume, the repository or its own
@@ -37,8 +38,8 @@ Apps in the built-in catalogue: `vaultwarden`, `filebrowser`, `memos`.
 | `build`    | render `.sapper/` (`--dry-run`, `--up`, `--runtime docker\|podman`) |
 | `preflight` | check volumes, repository, password, locks, free space, and whether this host can delete the backups |
 | `backup`   | restic backup of every volume plus a checksum manifest, kept locally and in the repository (`--dry-run`, `--force`, `--sign-key`) |
-| `breach`   | restore latest snapshot to a temp dir, verify it and print an evidence report (`--brief`, `--sign-key`, `--keep`, `--temp-dir`, `--snapshot`, `--sample`, `--pub-key`) |
-| `reports`  | list saved drill reports; `reports show [n]` (`--markdown`, `--brief`); `reports verify` (`--pub-key`, `--head`) |
+| `breach`   | restore latest snapshot to a temp dir, verify it and print an evidence report (`--brief`, `--strict`, `--sign-key`, `--keep`, `--temp-dir`, `--snapshot`, `--sample`, `--pub-key`) |
+| `reports`  | list saved drill reports; `reports show [n]` (`--markdown`, `--brief`); `reports verify` (`--pub-key`, repeatable; `--revoked`; `--head`) |
 | `keygen`   | create an ed25519 key pair for signing reports (`--out`) |
 | `status`   | boot art, fortress, last backup, last drill |
 | `completion` | shell completion for bash, zsh, fish, powershell |
@@ -58,6 +59,7 @@ Results go to stdout, progress and logs to stderr.
 | 4 | `breach` could not reach a verdict (no snapshot, no manifest, restore failed) |
 | 5 | restic, docker or podman not installed |
 | 6 | `backup` refused because live data looks damaged (empty or shrunk volume, mass encryption); `--force` overrides |
+| 7 | `breach --strict` only: the drill survived but missed its RTO or RPO target |
 
 ## Drill reports
 
@@ -208,6 +210,26 @@ The pictures are drawn by `scripts/taleart.py` and the recording is made with
 `scripts/taletape.py`; see [docs/ART.md](docs/ART.md) for the art rules; individual panels are in
 [docs/img/tale/](docs/img/tale/).
 
-See [docs/NAME.md](docs/NAME.md) for the name and [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md) for what sapper does and does not defend against.
+## Verifying a release
+
+Release binaries are built reproducibly (`CGO_ENABLED=0`, `-trimpath`,
+`-buildid=`, `SOURCE_DATE_EPOCH` from the tagged commit), listed in `SHA256SUMS`,
+signed with cosign keyless signing, and come with SLSA level 3 provenance and
+CycloneDX SBOMs. Replace `<OWNER>` and the version:
+
+    sha256sum -c --ignore-missing SHA256SUMS
+    cosign verify-blob SHA256SUMS \
+      --bundle SHA256SUMS.sigstore.json \
+      --certificate-identity "https://github.com/<OWNER>/sapper/.github/workflows/release.yml@refs/tags/v1.0.0" \
+      --certificate-oidc-issuer https://token.actions.githubusercontent.com
+    slsa-verifier verify-artifact sapper-v1.0.0-linux-amd64 \
+      --provenance-path multiple.intoto.jsonl \
+      --source-uri github.com/<OWNER>/sapper --source-tag v1.0.0
+
+To check reproducibility yourself, check out the tag and run `make repro`, or
+build with the flags in `.github/workflows/release.yml` and compare the hash with
+`SHA256SUMS`. A FIPS 140-3 mode build is described in [docs/FIPS.md](docs/FIPS.md).
+
+See [docs/NAME.md](docs/NAME.md) for the name and [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md) for what sapper does and does not defend against, [docs/CONTROLS.md](docs/CONTROLS.md) for the controls it supports, and [docs/KEYS.md](docs/KEYS.md) for the signing-key lifecycle.
 
 — the sapper of the unbuilt

@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/ed25519"
+	"crypto/fips140"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -62,6 +63,16 @@ func Main(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	return codeOf(err)
 }
 
+// versionString is the --version text. In FIPS 140-3 mode it names the Go
+// Cryptographic Module in use; that says which module is linked, not that sapper
+// is validated (see docs/FIPS.md).
+func versionString() string {
+	if fips140.Enabled() {
+		return Version + " (FIPS 140-3 mode, Go Cryptographic Module " + fips140.Version() + "; sapper itself is not FIPS validated)"
+	}
+	return Version
+}
+
 func (a *app) rootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:   "sapper",
@@ -78,7 +89,7 @@ captured at backup time. Drills never write to live data.`,
   sapper status`,
 		SilenceUsage:      true,
 		SilenceErrors:     true,
-		Version:           Version,
+		Version:           versionString(),
 		PersistentPreRunE: a.setup,
 	}
 	root.SuggestionsMinimumDistance = 2
@@ -410,7 +421,7 @@ that passed a drill is never removed by keep_last.`,
 
 func (a *app) breachCmd() *cobra.Command {
 	var pw passwordFlags
-	var keep, brief bool
+	var keep, brief, strict bool
 	var tmp, signKey, snapshot, pubKey string
 	var sample int
 	c := &cobra.Command{
@@ -435,14 +446,19 @@ signed by the given key.
 randomly chosen older snapshots, so damage to data only older snapshots use is
 found before you need them.
 
-Exit codes: 0 survived, 3 breached, 4 no verdict (no snapshot, manifest or restore).`,
+--strict also fails a drill that survived but missed the blueprint's RTO or RPO
+target, so a slow restore or a stale backup is not reported as success.
+
+Exit codes: 0 survived, 3 breached, 4 no verdict (no snapshot, manifest or restore),
+7 survived but missed an RTO or RPO target (only with --strict).`,
 		Example: `  sapper breach
   sapper breach --brief                      # one line, for cron mail
   sapper breach --json | jq .verdict
   sapper breach --sign-key ~/.config/sapper/drill.key
   sapper breach --keep --temp-dir /var/tmp   # leave the restored copy for inspection
   sapper breach --sample 3                   # also drill three older snapshots
-  sapper breach --snapshot 1a2b3c4d`,
+  sapper breach --snapshot 1a2b3c4d
+  sapper breach --strict                     # also fail when RTO or RPO is missed`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			bp, err := a.load()
@@ -491,6 +507,11 @@ Exit codes: 0 survived, 3 breached, 4 no verdict (no snapshot, manifest or resto
 			if !rep.Survived() {
 				return withCode(ExitBreached, fmt.Errorf("%s in snapshot %s", plural(len(rep.Problems), "problem"), short(rep.Snapshot)))
 			}
+			if strict && rep.Report != nil {
+				if missed := rep.Report.TargetsMissed(); len(missed) > 0 {
+					return withCode(ExitTargets, fmt.Errorf("drill survived but missed its %s target (--strict)", strings.Join(missed, " and ")))
+				}
+			}
 			return nil
 		},
 	}
@@ -498,6 +519,7 @@ Exit codes: 0 survived, 3 breached, 4 no verdict (no snapshot, manifest or resto
 	c.Flags().BoolVar(&keep, "keep", false, "keep the restored copy and print its path")
 	c.Flags().StringVar(&tmp, "temp-dir", "", "parent directory for the throwaway restore (default: system temp)")
 	c.Flags().BoolVar(&brief, "brief", false, "print a one-line summary instead of the full report")
+	c.Flags().BoolVar(&strict, "strict", false, "exit 7 when the drill survives but misses its RTO or RPO target")
 	c.Flags().StringVar(&signKey, "sign-key", envOr("SAPPER_SIGN_KEY", ""), "sign the report with this ed25519 private key file (env SAPPER_SIGN_KEY; see sapper keygen)")
 	c.Flags().StringVar(&snapshot, "snapshot", "", "drill this snapshot (ID or unique prefix) instead of the latest")
 	c.Flags().IntVar(&sample, "sample", 0, "also drill this many randomly chosen older snapshots")

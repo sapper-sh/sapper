@@ -26,8 +26,11 @@
 
 ## Key decisions
 
-**Shell out to restic instead of linking a backup library.** restic is audited,
-widely deployed and has a stable JSON interface. Reimplementing encryption,
+**Shell out to restic instead of linking a backup library.** restic's cryptography
+had an informal review by Filippo Valsorda in 2017
+([restic cryptography](https://words.filippo.io/restic-cryptography/)); no
+professional third-party audit is known (see
+[restic#1515](https://github.com/restic/restic/issues/1515)). It is widely deployed and has a stable JSON interface. Reimplementing encryption,
 deduplication and repository formats would be the largest source of bugs.
 Rejected: kopia (fine tool, smaller install base on distros), borg (no native
 Windows support, Python dependency), a custom tar+age format.
@@ -76,7 +79,7 @@ Linux server, but people inspect, back up and drill from laptops. `build --up`
 refuses on macOS and Windows with a clear message.
 
 **Evidence reports instead of a bare verdict.** A verdict on its own asks to be
-trusted. The report shows its working, ordered like a good postmortem or audit
+trusted. The report shows its working, ordered like a good postmortem or inspection
 finding: bottom line first, then scope, evidence, timeline and actions. Every
 problem names the file, what was expected and what was found, and is paired with
 a command or a decision. The copy is plain on purpose: short declarative

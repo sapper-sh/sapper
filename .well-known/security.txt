@@ -1,0 +1,10 @@
+# security.txt for sapper (RFC 9116, https://www.rfc-editor.org/rfc/rfc9116).
+# TODO (author): replace every <OWNER> and <CONTACT-EMAIL>, set Expires to a date
+# less than a year ahead, sign this file (OpenPGP clearsign) if you have a key,
+# and serve it at https://<your-domain>/.well-known/security.txt.
+Contact: https://github.com/<OWNER>/sapper/security/advisories/new
+Contact: mailto:<CONTACT-EMAIL>
+Expires: 2027-11-04T00:00:00Z
+Policy: https://github.com/<OWNER>/sapper/blob/main/SECURITY.md
+Canonical: https://github.com/<OWNER>/sapper/blob/main/.well-known/security.txt
+Preferred-Languages: en

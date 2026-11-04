@@ -155,7 +155,8 @@ func (a *app) reportsShowCmd() *cobra.Command {
 }
 
 func (a *app) reportsVerifyCmd() *cobra.Command {
-	var pubPath, head string
+	var pubPaths []string
+	var head, revokedPath string
 	c := &cobra.Command{
 		Use:   "verify",
 		Short: "Check the report chain for edited, missing or reordered reports",
@@ -168,19 +169,40 @@ can write the state directory can rebuild an unsigned chain from scratch. For
 stronger guarantees, keep the signing key off this host and pass --pub-key, and
 record the latest hash somewhere else and pass it as --head.
 
+--pub-key may be given more than once: after a key rotation, pass the old and the
+new public key so reports signed before and after the rotation both verify.
+--revoked names a file of key IDs (one per line, '#' starts a comment); a report
+signed by a listed key fails, whatever date it carries. See docs/KEYS.md.
+
 Exits 0 when the chain is intact and 3 when it is not.`,
 		Example: `  sapper reports verify
   sapper reports verify --pub-key drill.key.pub
-  sapper reports verify --head 4be0c1d2e3f4`,
+  sapper reports verify --head 4be0c1d2e3f4
+  sapper reports verify --pub-key old.key.pub --pub-key new.key.pub --revoked revoked.txt`,
 		Args: cobra.NoArgs,
 		RunE: func(*cobra.Command, []string) error {
-			var pub ed25519.PublicKey
-			if pubPath != "" {
-				k, err := report.LoadPublicKey(pubPath)
+			var keys []ed25519.PublicKey
+			for _, p := range pubPaths {
+				k, err := report.LoadPublicKey(p)
 				if err != nil {
 					return withCode(ExitUsage, fmt.Errorf("--pub-key: %w", err))
 				}
-				pub = k
+				keys = append(keys, k)
+			}
+			var revoked map[string]bool
+			if revokedPath != "" {
+				data, err := os.ReadFile(revokedPath)
+				if err != nil {
+					return withCode(ExitUsage, fmt.Errorf("--revoked: %w", err))
+				}
+				if revoked, err = report.ParseRevocations(data); err != nil {
+					return withCode(ExitUsage, fmt.Errorf("--revoked %s: %w", revokedPath, err))
+				}
+				for _, k := range keys {
+					if revoked[report.KeyID(k)] {
+						return usagef("--pub-key %s is on the revocation list", report.KeyID(k))
+					}
+				}
 			}
 			head = strings.ToLower(strings.TrimSpace(head))
 			if head != "" && (len(head) < 8 || len(head) > 64 || strings.Trim(head, "0123456789abcdef") != "") {
@@ -190,7 +212,7 @@ Exits 0 when the chain is intact and 3 when it is not.`,
 			if err != nil {
 				return err
 			}
-			issues := report.VerifyChain(all, pub, head)
+			issues := report.VerifyChainWith(all, report.VerifyOptions{Keys: keys, Revoked: revoked, Head: head})
 			last := ""
 			if n := len(all); n > 0 && all[n-1].Report != nil {
 				last = all[n-1].Report.Hash
@@ -201,8 +223,12 @@ Exits 0 when the chain is intact and 3 when it is not.`,
 				}
 			} else if len(issues) == 0 {
 				what := "unsigned or self-signed"
-				if pub != nil {
-					what = "signed by key " + report.KeyID(pub)
+				if len(keys) > 0 {
+					ids := make([]string, len(keys))
+					for i, k := range keys {
+						ids[i] = report.KeyID(k)
+					}
+					what = "signed by key " + strings.Join(ids, " or ")
 				}
 				if len(all) == 0 {
 					fmt.Fprintln(a.stdout, "No reports to verify.")
@@ -228,7 +254,8 @@ Exits 0 when the chain is intact and 3 when it is not.`,
 			return nil
 		},
 	}
-	c.Flags().StringVar(&pubPath, "pub-key", "", "require every report to be signed by this ed25519 public key")
+	c.Flags().StringArrayVar(&pubPaths, "pub-key", nil, "require every report to be signed by this ed25519 public key (repeat to trust several keys across a rotation)")
+	c.Flags().StringVar(&revokedPath, "revoked", "", "file of revoked key IDs; reports signed by them fail")
 	c.Flags().StringVar(&head, "head", "", "expected hash (or prefix) of the newest report")
 	return c
 }
@@ -245,7 +272,11 @@ to "sapper reports verify --pub-key".
 
 A signature proves a report was not changed after signing only if the private key
 is out of reach of whoever could change the report. Keep it readable only by the
-user that runs drills, and keep the public key somewhere else as well.`,
+user that runs drills, and keep the public key somewhere else as well.
+
+To rotate, create a new key with a new --out path, switch --sign-key to it, and
+verify with both public keys. If a key may have leaked, add its key ID to a
+revocation list and pass it to "sapper reports verify --revoked". See docs/KEYS.md.`,
 		Example: `  sapper keygen --out ~/.config/sapper/drill.key`,
 		Args:    cobra.NoArgs,
 		RunE: func(*cobra.Command, []string) error {
