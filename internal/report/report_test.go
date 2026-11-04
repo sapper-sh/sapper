@@ -376,7 +376,7 @@ func TestTerminalLayout(t *testing.T) {
 	if verdict < 0 || verdict > strings.Index(out, "What was tested") || strings.Index(out, "What was tested") > strings.Index(out, "Evidence") {
 		t.Fatalf("verdict must come first:\n%s", out)
 	}
-	for _, want := range []string{"3f9a1c2e, taken 2026-11-04 03:30:00 UTC", snapID, "changed content: expected 111111111111…", "                 actual   222222222222…", "follows #6", "Restore (RTO) 2.2s to restore and verify; no target set"} {
+	for _, want := range []string{"3f9a1c2e, taken 2026-11-04 03:30:00 UTC", snapID, "changed content: expected 111111111111…", "                 actual   222222222222…", "follows #6", "Restore time  2.2s to restore and verify (RTO); no target set"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q:\n%s", want, out)
 		}

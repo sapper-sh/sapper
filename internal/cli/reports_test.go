@@ -44,7 +44,7 @@ func TestReportsEndToEnd(t *testing.T) {
 	if r.code != 0 {
 		t.Fatalf("signed drill: %+v", r)
 	}
-	for _, want := range []string{"S U R V I V E D", "The latest backup restores correctly.", "What was tested", "Evidence", "Timings", "Restore (RTO)", "What to do next", "Signed        ed25519"} {
+	for _, want := range []string{"S U R V I V E D", "The latest backup restores correctly.", "What was tested", "Evidence", "Timings", "Restore time", "What to do next", "Signed        ed25519"} {
 		if !strings.Contains(r.stdout, want) {
 			t.Errorf("survived output missing %q:\n%s", want, r.stdout)
 		}

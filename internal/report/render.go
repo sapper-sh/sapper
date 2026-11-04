@@ -132,12 +132,12 @@ func Terminal(r *Report, v View) string {
 	if len(r.Phases) > 0 {
 		s.head("Timings")
 		for _, p := range r.Phases {
-			s.kv(capFirst(p.Name), Dur(ms(p.MS)))
+			s.line(fmt.Sprintf("  %-16s%7s", capFirst(p.Name), Dur(ms(p.MS))))
 		}
 	}
 	s.head("Recovery")
-	s.kv("Restore (RTO)", objective(r.Recovery.RTO, "to restore and verify"))
-	s.kv("Age (RPO)", objective(r.Recovery.RPO, "since the backup"))
+	s.kv("Restore time", objective(r.Recovery.RTO, "to restore and verify (RTO)"))
+	s.kv("Backup age", objective(r.Recovery.RPO, "since the backup (RPO)"))
 
 	if r.Error != "" {
 		s.head("Error")
