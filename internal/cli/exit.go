@@ -14,6 +14,7 @@ const (
 	ExitBreached   = 3 // breach drill ran and found damaged or missing data
 	ExitUnverified = 4 // breach drill could not run to a verdict (no snapshot, no manifest, restore failed)
 	ExitMissingDep = 5 // restic, docker or podman not installed
+	ExitSuspicious = 6 // backup refused: live data looks damaged (empty, shrunk, encrypted); --force overrides
 )
 
 type exitError struct {

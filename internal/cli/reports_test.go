@@ -72,7 +72,10 @@ func TestReportsEndToEnd(t *testing.T) {
 		NextSteps []string `json:"next_steps"`
 	}
 	if r.code != ExitBreached || json.Unmarshal([]byte(r.stdout), &rep) != nil || rep.Verdict != "BREACHED" || rep.Seq != 4 ||
-		len(rep.Evidence.Findings) != 1 || rep.Evidence.Findings[0].Kind != "content" || rep.Evidence.Findings[0].Expected != strings.Repeat("0", 64) {
+		// The edited local manifest no longer matches the copy kept in the repository, and
+		// the restored file no longer matches the edited checksum.
+		len(rep.Evidence.Findings) != 2 || rep.Evidence.Findings[0].Kind != "manifest-mismatch" ||
+		rep.Evidence.Findings[1].Kind != "content" || rep.Evidence.Findings[1].Expected != strings.Repeat("0", 64) {
 		t.Fatalf("breached json: %+v\n%s", rep, r.stdout)
 	}
 

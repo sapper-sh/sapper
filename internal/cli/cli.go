@@ -97,7 +97,7 @@ captured at backup time. Drills never write to live data.`,
 		return cmd.Help()
 	}
 	root.Flags().Bool("no-anim", false, "skip the boot animation")
-	root.AddCommand(a.initCmd(), a.validateCmd(), a.buildCmd(), a.backupCmd(), a.breachCmd(), a.reportsCmd(), a.keygenCmd(), a.statusCmd())
+	root.AddCommand(a.initCmd(), a.validateCmd(), a.buildCmd(), a.backupCmd(), a.breachCmd(), a.preflightCmd(), a.reportsCmd(), a.keygenCmd(), a.statusCmd())
 	return root
 }
 
@@ -337,13 +337,25 @@ func (a *app) client(p *passwordFlags, bp *blueprint.Blueprint) (*restic.Client,
 
 func (a *app) backupCmd() *cobra.Command {
 	var pw passwordFlags
-	var dryRun bool
+	var dryRun, force bool
+	var signKey string
 	c := &cobra.Command{
 		Use:   "backup",
 		Short: "Back up every declared volume with restic",
 		Long: `backup snapshots every volume in the blueprint and records a checksum manifest
 for the snapshot. Stop apps that write continuously first; backup fails if data
-changes while it runs. The repository is initialised on first use.`,
+changes while it runs. The repository is initialised on first use.
+
+A copy of the manifest is stored in the repository as its own snapshot (tag
+sapper-manifest), so a drill from another machine can still verify. --sign-key
+signs that copy.
+
+Before backing up, sapper compares live data with the last backup and refuses
+(exit 6) when a volume is empty, has lost more than half its files or bytes, or
+when most files changed and the changed files look encrypted. Those are the
+signs of a missing mount, an rm -rf or ransomware, and backing them up would push
+good snapshots out of retention. --force backs up anyway. The newest snapshot
+that passed a drill is never removed by keep_last.`,
 		Example: `  SAPPER_RESTIC_PASSWORD=... sapper backup
   sapper backup --password-file /root/.config/sapper/restic-pass
   sapper backup --dry-run`,
@@ -368,7 +380,17 @@ changes while it runs. The repository is initialised on first use.`,
 				return err
 			}
 			a.logf("backing up %d volumes to %s", len(bp.VolumePaths()), bp.RedactedRepo())
-			rec, err := ops.Backup(cmd.Context(), bp, c)
+			key, err := a.signingKey(signKey)
+			if err != nil {
+				return err
+			}
+			rec, err := ops.Backup(cmd.Context(), bp, c, ops.BackupOptions{Force: force, SignKey: key})
+			for _, an := range rec.Forced {
+				fmt.Fprintf(a.stderr, "sapper: warning: backed up despite: %s\n", an.Detail)
+			}
+			if errors.Is(err, ops.ErrSuspicious) {
+				return withCode(ExitSuspicious, err)
+			}
 			if err != nil {
 				return err
 			}
@@ -381,13 +403,16 @@ changes while it runs. The repository is initialised on first use.`,
 	}
 	pw.add(c)
 	c.Flags().BoolVar(&dryRun, "dry-run", false, "print what would be backed up")
+	c.Flags().BoolVar(&force, "force", false, "back up even if live data looks damaged, or start a new repository where one went missing")
+	c.Flags().StringVar(&signKey, "sign-key", envOr("SAPPER_SIGN_KEY", ""), "sign the manifest copy stored in the repository with this ed25519 key (env SAPPER_SIGN_KEY)")
 	return c
 }
 
 func (a *app) breachCmd() *cobra.Command {
 	var pw passwordFlags
 	var keep, brief bool
-	var tmp, signKey string
+	var tmp, signKey, snapshot, pubKey string
+	var sample int
 	c := &cobra.Command{
 		Use:   "breach",
 		Short: "Restore the latest backup into a throwaway directory and verify it",
@@ -401,35 +426,48 @@ written.
 Every drill saves its report as JSON and Markdown in the state directory, chained
 by hash to the one before. See "sapper reports".
 
+If this machine has no manifest for the snapshot (a new host after a disaster),
+the drill uses the copy stored in the repository at backup time. If both exist
+and disagree, the drill reports a breach. --pub-key requires that copy to be
+signed by the given key.
+
+--snapshot drills a chosen snapshot; --sample N also restores and verifies N
+randomly chosen older snapshots, so damage to data only older snapshots use is
+found before you need them.
+
 Exit codes: 0 survived, 3 breached, 4 no verdict (no snapshot, manifest or restore).`,
 		Example: `  sapper breach
   sapper breach --brief                      # one line, for cron mail
   sapper breach --json | jq .verdict
   sapper breach --sign-key ~/.config/sapper/drill.key
-  sapper breach --keep --temp-dir /var/tmp   # leave the restored copy for inspection`,
+  sapper breach --keep --temp-dir /var/tmp   # leave the restored copy for inspection
+  sapper breach --sample 3                   # also drill three older snapshots
+  sapper breach --snapshot 1a2b3c4d`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			bp, err := a.load()
 			if err != nil {
 				return err
 			}
-			var key ed25519.PrivateKey
-			if signKey != "" {
-				k, warn, err := report.LoadPrivateKey(signKey)
-				if err != nil {
-					return withCode(ExitUsage, fmt.Errorf("--sign-key: %w", err))
+			key, err := a.signingKey(signKey)
+			if err != nil {
+				return err
+			}
+			if sample < 0 || sample > 100 {
+				return usagef("--sample must be between 0 and 100")
+			}
+			var pub ed25519.PublicKey
+			if pubKey != "" {
+				if pub, err = report.LoadPublicKey(pubKey); err != nil {
+					return withCode(ExitUsage, fmt.Errorf("--pub-key: %w", err))
 				}
-				if warn != "" {
-					fmt.Fprintln(a.stderr, "sapper: warning: "+warn)
-				}
-				key = k
 			}
 			c, err := a.client(&pw, bp)
 			if err != nil {
 				return err
 			}
 			a.logf("restoring latest snapshot into a throwaway directory")
-			rep, err := ops.Breach(cmd.Context(), bp, c, ops.DrillOptions{Keep: keep, TempRoot: tmp, SignKey: key})
+			rep, err := ops.Breach(cmd.Context(), bp, c, ops.DrillOptions{Keep: keep, TempRoot: tmp, SignKey: key, Snapshot: snapshot, Sample: sample, ManifestKey: pub})
 			if rep.ReportErr != nil {
 				fmt.Fprintf(a.stderr, "sapper: warning: drill report not saved: %v\n", rep.ReportErr)
 			} else if rep.ReportPath != "" {
@@ -461,6 +499,75 @@ Exit codes: 0 survived, 3 breached, 4 no verdict (no snapshot, manifest or resto
 	c.Flags().StringVar(&tmp, "temp-dir", "", "parent directory for the throwaway restore (default: system temp)")
 	c.Flags().BoolVar(&brief, "brief", false, "print a one-line summary instead of the full report")
 	c.Flags().StringVar(&signKey, "sign-key", envOr("SAPPER_SIGN_KEY", ""), "sign the report with this ed25519 private key file (env SAPPER_SIGN_KEY; see sapper keygen)")
+	c.Flags().StringVar(&snapshot, "snapshot", "", "drill this snapshot (ID or unique prefix) instead of the latest")
+	c.Flags().IntVar(&sample, "sample", 0, "also drill this many randomly chosen older snapshots")
+	c.Flags().StringVar(&pubKey, "pub-key", envOr("SAPPER_PUB_KEY", ""), "require the manifest copy in the repository to be signed by this ed25519 public key")
+	return c
+}
+
+// signingKey loads an ed25519 private key for --sign-key, or returns nil for an empty path.
+func (a *app) signingKey(path string) (ed25519.PrivateKey, error) {
+	if path == "" {
+		return nil, nil
+	}
+	k, warn, err := report.LoadPrivateKey(path)
+	if err != nil {
+		return nil, withCode(ExitUsage, fmt.Errorf("--sign-key: %w", err))
+	}
+	if warn != "" {
+		fmt.Fprintln(a.stderr, "sapper: warning: "+warn)
+	}
+	return k, nil
+}
+
+func (a *app) preflightCmd() *cobra.Command {
+	var pw passwordFlags
+	var tmp string
+	c := &cobra.Command{
+		Use:   "preflight",
+		Short: "Check that backup and breach can run, and what could still lose the backups",
+		Long: `preflight checks, without changing anything: every volume exists and is not
+empty (an unmounted disk looks like an empty directory), the repository is
+reachable and the password opens it, no locks are held, the drill temp directory
+has room for a restore, and whether this host could delete the repository.
+
+Exits 1 if a check that would make backup or breach fail does not pass. Risks
+(locks held, a repository this host can delete) are reported but do not fail.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			bp, err := a.load()
+			if err != nil {
+				return err
+			}
+			c, err := a.client(&pw, bp)
+			if err != nil {
+				return err
+			}
+			res := ops.Preflight(cmd.Context(), bp, c, ops.PreflightOptions{TempRoot: tmp})
+			if a.jsonOut {
+				if err := a.printJSON(res); err != nil {
+					return err
+				}
+			} else {
+				for _, ch := range res.Checks {
+					mark := "ok  "
+					switch {
+					case !ch.OK && ch.Fatal:
+						mark = "FAIL"
+					case !ch.OK:
+						mark = "RISK"
+					}
+					fmt.Fprintf(a.stdout, "%s  %-12s %s\n", mark, ch.Name, report.CleanLines(ch.Detail))
+				}
+			}
+			if !res.OK() {
+				return errors.New("pre-flight failed")
+			}
+			return nil
+		},
+	}
+	pw.add(c)
+	c.Flags().StringVar(&tmp, "temp-dir", "", "directory drills will restore under (default: system temp)")
 	return c
 }
 

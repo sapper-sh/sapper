@@ -180,3 +180,46 @@ func TestHumanBytes(t *testing.T) {
 		}
 	}
 }
+
+func TestBackupRefusesEmptyVolumeAndPreflight(t *testing.T) {
+	if _, err := exec.LookPath("restic"); err != nil {
+		t.Skip("restic not installed")
+	}
+	bpPath := fortress(t)
+	pwFile := filepath.Join(t.TempDir(), "pw")
+	if err := os.WriteFile(pwFile, []byte("secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if r := run(t, "", "backup", "-f", bpPath, "--password-file", pwFile); r.code != 0 {
+		t.Fatalf("backup: %+v", r)
+	}
+	r := run(t, "", "preflight", "-f", bpPath, "--password-file", pwFile)
+	if r.code != 0 || !strings.Contains(r.stdout, "ok    password") || !strings.Contains(r.stdout, "RISK  append-only") {
+		t.Fatalf("preflight: %+v", r)
+	}
+	bp, _ := blueprint.Load(bpPath)
+	vol := bp.VolumePaths()[0]
+	if err := os.RemoveAll(vol); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(vol, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r = run(t, "", "backup", "-f", bpPath, "--password-file", pwFile)
+	if r.code != ExitSuspicious || !strings.Contains(r.stderr, "is empty") || !strings.Contains(r.stderr, "--force") {
+		t.Fatalf("backup of empty volume: %+v", r)
+	}
+	if r := run(t, "", "preflight", "-f", bpPath, "--password-file", pwFile); r.code != ExitError || !strings.Contains(r.stdout, "FAIL  volumes") {
+		t.Fatalf("preflight with empty volume: %+v", r)
+	}
+	r = run(t, "", "backup", "-f", bpPath, "--password-file", pwFile, "--force")
+	if r.code != 0 || !strings.Contains(r.stderr, "backed up despite") {
+		t.Fatalf("forced backup: %+v", r)
+	}
+	if r := run(t, "", "preflight", "-f", bpPath, "--password-stdin"); r.code == 0 {
+		t.Fatalf("preflight with an empty password passed: %+v", r)
+	}
+	if r := run(t, "wrong\n", "breach", "-f", bpPath, "--password-stdin"); r.code != ExitUnverified || !strings.Contains(r.stderr, "wrong repository password") {
+		t.Fatalf("breach with wrong password: %+v", r)
+	}
+}
