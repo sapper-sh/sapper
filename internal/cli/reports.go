@@ -208,7 +208,8 @@ Exits 0 when the chain is intact and 3 when it is not.`,
 					fmt.Fprintln(a.stdout, "No reports to verify.")
 				} else {
 					fmt.Fprintf(a.stdout, "Chain intact: %s, every hash matches, %s.\n", plural(len(all), "report"), what)
-					fmt.Fprintf(a.stdout, "Latest hash %s. Record it somewhere else and pass it as --head next time.\n", last)
+					fmt.Fprintf(a.stdout, "Latest hash %s\n", report.Clean(last))
+					fmt.Fprintln(a.stdout, "Record it somewhere else and pass it as --head to catch deleted reports.")
 				}
 			} else {
 				fmt.Fprintf(a.stdout, "Chain broken: %s in %s.\n", plural(len(issues), "problem"), plural(len(all), "report"))
