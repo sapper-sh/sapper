@@ -35,6 +35,7 @@ manifest stored in the per-user state directory, and runs breach drills that
 | T3 | Extra lines in `backup-paths.txt` exfiltrating `/root/.ssh` into the repo | newline rejected | same |
 | T4 | Cron injection via `%` or newline in the blueprint directory (CWE-78) | render refuses | `TestRenderRefusesCronUnsafeDir` |
 | T5 | Argument injection into ssh via `sftp:-oProxyCommand=…` (CWE-88) | leading `-` refused for sftp host/user, rclone remote, and any repo | `TestValidateRejectsRepoOptionInjection` |
+| T5b | Command substitution when an operator sources `restic.env` (`$(…)`, backticks, spaces) (CWE-78) | whitespace and shell metacharacters refused in the repository and its resolved location (POSIX only) | `TestValidateRejectsShellMetaInRepository`, `TestRenderRefusesShellMetaInRepoLocation` |
 | T6 | Mounting the docker socket, `/`, `/etc`, … into a web app (CWE-250) | sensitive host paths and `*.sock` refused | `TestValidateRejectsInjection` |
 | T7 | Container privilege escalation via setuid | `security_opt: no-new-privileges:true` | `TestServicesDropNewPrivileges` |
 | T8 | Apps exposed to the network | ports always bound to `127.0.0.1` | `TestBuild` |
