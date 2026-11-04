@@ -26,6 +26,7 @@ type Service struct {
 	Ports       []string          `yaml:"ports"`
 	Volumes     []string          `yaml:"volumes"`
 	Environment map[string]string `yaml:"environment,omitempty"`
+	SecurityOpt []string          `yaml:"security_opt,omitempty"`
 }
 
 // Build converts a validated blueprint into a compose file. Ports bind to 127.0.0.1.
@@ -42,6 +43,8 @@ func Build(bp *blueprint.Blueprint) (File, error) {
 			Restart:     "unless-stopped",
 			Ports:       []string{fmt.Sprintf("127.0.0.1:%d:%d", app.Port, def.Port)},
 			Environment: def.Env,
+			// Stop setuid binaries in an image from regaining privileges after a compromise.
+			SecurityOpt: []string{"no-new-privileges:true"},
 		}
 		for _, m := range def.Mounts {
 			svc.Volumes = append(svc.Volumes, bp.HostPath(app.Volumes[m.Name])+":"+m.ContainerPath)
@@ -80,6 +83,11 @@ func Render(bp *blueprint.Blueprint) (Artifacts, error) {
 	out["backup-paths.txt"] = []byte(paths.String())
 
 	if bp.Drill.Schedule != "" {
+		// cron turns an unescaped '%' into a newline and a newline ends the entry, so either
+		// in the blueprint directory would let the path smuggle a second command into the crontab.
+		if strings.ContainsAny(bp.Dir, "%\n\r\x00") {
+			return nil, fmt.Errorf("drill.schedule: blueprint directory %q contains '%%' or a control character, which cron cannot run safely; move the blueprint", bp.Dir)
+		}
 		out["drill.cron"] = []byte(fmt.Sprintf("%s%s cd %s && sapper breach\n", header, bp.Drill.Schedule, shellQuote(bp.Dir)))
 	}
 	return out, nil
@@ -88,6 +96,10 @@ func Render(bp *blueprint.Blueprint) (Artifacts, error) {
 // Write stores artifacts in dir with private permissions.
 func Write(dir string, a Artifacts) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	// MkdirAll leaves an existing directory's mode alone; tighten it.
+	if err := os.Chmod(dir, 0o700); err != nil {
 		return err
 	}
 	for name, data := range a {
