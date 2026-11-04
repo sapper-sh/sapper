@@ -1,0 +1,119 @@
+package blueprint
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestExampleIsValid(t *testing.T) {
+	bp, err := Parse([]byte(Example))
+	if err != nil {
+		t.Fatal(err)
+	}
+	bp.Dir = "/srv/f"
+	if err := bp.Validate(); err != nil {
+		t.Fatalf("example blueprint invalid: %v", err)
+	}
+	if got, want := bp.HostPath("memos"), "/srv/f/data/memos"; got != want {
+		t.Errorf("HostPath = %q, want %q", got, want)
+	}
+	if got, want := bp.RepoLocation(), "/srv/f/backups/restic"; got != want {
+		t.Errorf("RepoLocation = %q, want %q", got, want)
+	}
+}
+
+func TestValidate(t *testing.T) {
+	tests := []struct {
+		name    string
+		edit    func(string) string
+		wantErr string
+	}{
+		{"bad version", rep("version: 1", "version: 2"), "version: must be 1"},
+		{"bad fortress name", rep("fortress: my-fortress", "fortress: My_Fortress"), "fortress:"},
+		{"missing data_root", rep("data_root: ./data", "data_root: \"\""), "data_root: required"},
+		{"unknown app", rep("  memos:\n", "  ghost:\n"), "apps.ghost: not in catalogue"},
+		{"duplicate port", rep("port: 8083", "port: 8081"), "already used"},
+		{"port out of range", rep("port: 8083", "port: 70000"), "out of range"},
+		{"missing mount", rep("      database: filebrowser/database\n", ""), "apps.filebrowser.volumes.database: required"},
+		{"unknown mount", rep("      data: memos\n", "      data: memos\n      extra: x\n"), "unknown mount"},
+		{"overlapping volumes", rep("data: memos", "data: vaultwarden/sub"), "overlaps"},
+		{"repo inside volume", rep("repository: ./backups/restic", "repository: ./data/memos/repo"), "backup.repository"},
+		{"bad env name", rep("password_env: SAPPER_RESTIC_PASSWORD", "password_env: lower"), "password_env"},
+		{"negative keep", rep("keep_last: 14", "keep_last: -1"), "keep_last"},
+		{"bad cron fields", rep(`"30 3 * * 0"`, `"30 3 *"`), "5 fields"},
+		{"bad cron chars", rep(`"30 3 * * 0"`, `"30 3 * * sun"`), "invalid characters"},
+		{"remote repo ok", rep("repository: ./backups/restic", "repository: sftp:me@host:/r"), ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			bp, err := Parse([]byte(tc.edit(Example)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			bp.Dir = "/srv/f"
+			err = bp.Validate()
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("error = %v, want containing %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestParseRejectsUnknownKeys(t *testing.T) {
+	if _, err := Parse([]byte(Example + "surprise: 1\n")); err == nil {
+		t.Fatal("expected error for unknown key")
+	}
+}
+
+func TestLoadResolvesDir(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, FileName)
+	if err := os.WriteFile(p, []byte(Example), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	bp, err := Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bp.Dir != dir {
+		t.Errorf("Dir = %q, want %q", bp.Dir, dir)
+	}
+	if n := len(bp.VolumePaths()); n != 4 {
+		t.Errorf("VolumePaths has %d entries, want 4", n)
+	}
+}
+
+func TestWithin(t *testing.T) {
+	tests := []struct {
+		parent, child string
+		want          bool
+	}{
+		{"/a", "/a/b", true},
+		{"/a", "/a", false},
+		{"/a", "/ab", false},
+		{"/a/b", "/a", false},
+		{"/a", "/a/../b", false},
+	}
+	for _, tc := range tests {
+		if got := within(tc.parent, tc.child); got != tc.want {
+			t.Errorf("within(%q,%q) = %v, want %v", tc.parent, tc.child, got, tc.want)
+		}
+	}
+}
+
+func rep(old, new string) func(string) string {
+	return func(s string) string {
+		if !strings.Contains(s, old) {
+			panic("fixture missing " + old)
+		}
+		return strings.Replace(s, old, new, 1)
+	}
+}
