@@ -11,7 +11,9 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
+	"time"
 )
 
 // ErrNotInstalled is returned when the restic binary cannot be found.
@@ -192,13 +194,8 @@ func parseLatest(out []byte) (Snapshot, error) {
 	if len(snaps) == 0 {
 		return Snapshot{}, ErrNoSnapshot
 	}
-	latest := snaps[0]
-	for _, s := range snaps[1:] {
-		if s.Time > latest.Time {
-			latest = s
-		}
-	}
-	return latest, nil
+	SortByTime(snaps)
+	return snaps[len(snaps)-1], nil
 }
 
 // Restore restores snapshot id into target.
@@ -216,4 +213,117 @@ func (c *Client) Forget(ctx context.Context, tag string, keepLast int) error {
 	}
 	_, err := c.run(ctx, "forget", "--tag", tag, "--keep-last", fmt.Sprint(keepLast), "--prune")
 	return err
+}
+
+// Snapshots returns every snapshot carrying tag, oldest first by timestamp.
+func (c *Client) Snapshots(ctx context.Context, tag string) ([]Snapshot, error) {
+	out, err := c.run(ctx, "snapshots", "--json", "--tag", tag)
+	var exit *exec.ExitError
+	if errors.As(err, &exit) && exit.ExitCode() == 10 {
+		return nil, ErrNoRepository
+	}
+	if err != nil {
+		return nil, err
+	}
+	var snaps []Snapshot
+	if err := json.Unmarshal(out, &snaps); err != nil {
+		return nil, fmt.Errorf("restic snapshots: %w", err)
+	}
+	SortByTime(snaps)
+	return snaps, nil
+}
+
+// SortByTime orders snapshots oldest first. Times are parsed, not compared as strings,
+// because restic prints the local offset of the host that took each snapshot.
+func SortByTime(s []Snapshot) {
+	sort.SliceStable(s, func(i, j int) bool { return s[i].When().Before(s[j].When()) })
+}
+
+// When parses the snapshot time; the zero time if restic printed something else.
+func (s Snapshot) When() time.Time {
+	t, _ := time.Parse(time.RFC3339Nano, s.Time)
+	return t
+}
+
+// RepoExists reports whether a repository is present at the configured location.
+func (c *Client) RepoExists(ctx context.Context) (bool, error) {
+	cmd := c.cmd(ctx, "cat", "config")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	var exit *exec.ExitError
+	switch {
+	case err == nil:
+		return true, nil
+	case errors.As(err, &exit) && exit.ExitCode() == 10:
+		return false, nil
+	}
+	return false, classify("cat config", err, stderr.String())
+}
+
+// ForgetIDs removes the given snapshots and prunes data no snapshot uses any more.
+func (c *Client) ForgetIDs(ctx context.Context, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	args := append([]string{"forget", "--prune", "--"}, ids...)
+	_, err := c.run(ctx, args...)
+	return err
+}
+
+// ManifestFile is the name of a manifest copy inside the repository.
+const ManifestFile = "sapper-manifest.json"
+
+// SaveBlob stores data in the repository as its own snapshot of a single file, tagged tags.
+func (c *Client) SaveBlob(ctx context.Context, data []byte, tags []string) (string, error) {
+	args := []string{"backup", "--json", "--stdin", "--stdin-filename", ManifestFile}
+	for _, t := range tags {
+		args = append(args, "--tag", t)
+	}
+	var stdout, stderr bytes.Buffer
+	cmd := c.cmd(ctx, args...)
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = bytes.NewReader(data), &stdout, &stderr
+	if err := cmd.Run(); err != nil {
+		return "", classify("backup", err, stderr.String())
+	}
+	return parseSnapshotID(stdout.Bytes())
+}
+
+// LoadBlob reads the file SaveBlob stored in snapshot id, up to max bytes.
+func (c *Client) LoadBlob(ctx context.Context, id string, max int64) ([]byte, error) {
+	var stdout limitedBuffer
+	stdout.max = max
+	var stderr bytes.Buffer
+	cmd := c.cmd(ctx, "dump", "--no-cache", id, "/"+ManifestFile)
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	if err := cmd.Run(); err != nil {
+		if stdout.over {
+			return nil, fmt.Errorf("restic dump: manifest copy larger than %d bytes", max)
+		}
+		return nil, classify("dump", err, stderr.String())
+	}
+	return stdout.Bytes(), nil
+}
+
+type limitedBuffer struct {
+	bytes.Buffer
+	max  int64
+	over bool
+}
+
+func (b *limitedBuffer) Write(p []byte) (int, error) {
+	if int64(b.Len()+len(p)) > b.max {
+		b.over = true
+		return 0, errors.New("too large")
+	}
+	return b.Buffer.Write(p)
+}
+
+// Locks returns how many lock files the repository holds.
+func (c *Client) Locks(ctx context.Context) (int, error) {
+	out, err := c.run(ctx, "list", "locks", "--no-lock")
+	if err != nil {
+		return 0, err
+	}
+	return len(strings.Fields(string(out))), nil
 }

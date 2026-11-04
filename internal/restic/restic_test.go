@@ -78,3 +78,12 @@ func TestClassifyExitCodes(t *testing.T) {
 		t.Fatalf("exit 3: %v", err)
 	}
 }
+
+func TestLatestComparesTimesAcrossOffsets(t *testing.T) {
+	// 10:00+02:00 is 08:00 UTC, earlier than 09:00Z, although it sorts later as a string.
+	out := `[{"id":"aa","time":"2026-01-01T10:00:00+02:00"},{"id":"bb","time":"2026-01-01T09:00:00Z"}]`
+	got, err := parseLatest([]byte(out))
+	if err != nil || got.ID != "bb" {
+		t.Fatalf("got %q, %v; want bb", got.ID, err)
+	}
+}
