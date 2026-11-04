@@ -36,7 +36,7 @@ func TestStateBase(t *testing.T) {
 				return
 			}
 			want := tc.want
-			if tc.goos != "windows" && !filepath.IsAbs(want) || tc.goos != "windows" && want[0] == '/' {
+			if tc.goos != "windows" {
 				want = filepath.FromSlash(want)
 			}
 			if got != want {
