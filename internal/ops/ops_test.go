@@ -109,7 +109,7 @@ func TestBreachOutcomes(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			bp := newFortress(t)
 			fr := &fakeRestic{snapDir: t.TempDir()}
-			if _, err := Backup(context.Background(), bp, fr); err != nil {
+			if _, err := Backup(context.Background(), bp, fr, BackupOptions{}); err != nil {
 				t.Fatal(err)
 			}
 			rep, err := Breach(context.Background(), bp, fr, DrillOptions{BeforeVerify: tc.damage})
@@ -138,7 +138,7 @@ func TestBreachWithoutSnapshot(t *testing.T) {
 func TestBreachRefusesTempInsideVolume(t *testing.T) {
 	bp := newFortress(t)
 	fr := &fakeRestic{snapDir: t.TempDir()}
-	if _, err := Backup(context.Background(), bp, fr); err != nil {
+	if _, err := Backup(context.Background(), bp, fr, BackupOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	_, err := Breach(context.Background(), bp, fr, DrillOptions{TempRoot: bp.VolumePaths()[0]})
@@ -157,7 +157,7 @@ func TestBackupDetectsConcurrentChange(t *testing.T) {
 	bp := newFortress(t)
 	victim := filepath.Join(bp.VolumePaths()[0], "nested", "data.db")
 	fr := &fakeRestic{snapDir: t.TempDir(), onBackup: func() { _ = os.WriteFile(victim, []byte("written mid-backup"), 0o644) }}
-	_, err := Backup(context.Background(), bp, fr)
+	_, err := Backup(context.Background(), bp, fr, BackupOptions{})
 	if err == nil || !strings.Contains(err.Error(), "changed during backup") {
 		t.Fatalf("err = %v, want change detection", err)
 	}
@@ -168,7 +168,7 @@ func TestBackupMissingVolume(t *testing.T) {
 	if err := os.RemoveAll(bp.VolumePaths()[0]); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Backup(context.Background(), bp, &fakeRestic{snapDir: t.TempDir()}); err == nil {
+	if _, err := Backup(context.Background(), bp, &fakeRestic{snapDir: t.TempDir()}, BackupOptions{}); err == nil {
 		t.Fatal("expected error for missing volume")
 	}
 }

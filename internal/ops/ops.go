@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"sort"
@@ -51,11 +52,30 @@ type BackupRecord struct {
 	Time     time.Time `json:"time"`
 	Entries  int       `json:"entries"`
 	Created  bool      `json:"repo_created"`
+	// ManifestCopy is the snapshot holding the manifest copy in the repository.
+	ManifestCopy string `json:"manifest_copy,omitempty"`
+	// Forced lists the anomalies that --force overrode.
+	Forced []Anomaly `json:"forced,omitempty"`
+	// Forgotten lists snapshots removed by retention.
+	Forgotten []string `json:"forgotten,omitempty"`
 }
 
-// Backup snapshots every volume and stores a checksum manifest keyed by snapshot ID.
-// It fails if the volumes change while the backup runs, because the manifest would not match.
-func Backup(ctx context.Context, bp *blueprint.Blueprint, r Restic) (BackupRecord, error) {
+// BackupOptions tune a backup.
+type BackupOptions struct {
+	// Force backs up even when live data looks damaged, and lets backup create a new
+	// repository where this host already had one.
+	Force bool
+	// SignKey, when set, signs the manifest copy stored in the repository.
+	SignKey ed25519.PrivateKey
+}
+
+// ErrRepoMissing is returned when this host has backed up before but the repository is gone.
+var ErrRepoMissing = errors.New("the repository this fortress backed up to is gone")
+
+// Backup snapshots every volume and stores a checksum manifest keyed by snapshot ID, locally
+// and as a copy inside the repository. It fails if the volumes change while the backup runs,
+// because the manifest would not match, and refuses data that looks damaged unless forced.
+func Backup(ctx context.Context, bp *blueprint.Blueprint, r Restic, opt BackupOptions) (BackupRecord, error) {
 	paths := bp.VolumePaths()
 	for _, p := range paths {
 		st, err := os.Stat(p)
@@ -69,6 +89,27 @@ func Backup(ctx context.Context, bp *blueprint.Blueprint, r Restic) (BackupRecor
 	before, err := manifest.Build(paths)
 	if err != nil {
 		return BackupRecord{}, err
+	}
+	last, hadBackup := LastBackup(bp)
+	var prev *manifest.Manifest
+	if hadBackup && validID(last.Snapshot) {
+		if mp, err := statePath(bp, "manifests", last.Snapshot+".json"); err == nil {
+			prev, _ = manifest.Load(mp)
+		}
+	}
+	anomalies := Anomalies(prev, before, paths)
+	if len(anomalies) > 0 && !opt.Force {
+		return BackupRecord{}, fmt.Errorf("%w: %s. Nothing was backed up. If this is expected, run `sapper backup --force`", ErrSuspicious, describe(anomalies))
+	}
+	if rc, ok := r.(repoChecker); ok && hadBackup && !opt.Force {
+		exists, err := rc.RepoExists(ctx)
+		if err != nil {
+			return BackupRecord{}, err
+		}
+		if !exists {
+			return BackupRecord{}, fmt.Errorf("%w: snapshot %s was taken on %s, but %s has no repository now. It may have been deleted. Check the storage before anything else; `sapper backup --force` starts a new, empty repository",
+				ErrRepoMissing, short(last.Snapshot), last.Time.Format(time.RFC3339), bp.RedactedRepo())
+		}
 	}
 	created, err := r.EnsureRepo(ctx)
 	if err != nil {
@@ -95,11 +136,109 @@ func Backup(ctx context.Context, bp *blueprint.Blueprint, r Restic) (BackupRecor
 	if err := manifest.Save(mp, before); err != nil {
 		return BackupRecord{}, err
 	}
-	if err := r.Forget(ctx, Tag, bp.Backup.KeepLast); err != nil {
-		return BackupRecord{}, fmt.Errorf("snapshot %s saved, retention failed: %w", short(id), err)
-	}
 	rec := BackupRecord{Snapshot: id, Time: time.Now().UTC(), Entries: len(before.Entries), Created: created}
+	if opt.Force {
+		rec.Forced = anomalies
+	}
+	if rec.ManifestCopy, err = saveCopy(ctx, r, bp.Fortress, id, before, opt.SignKey); err != nil {
+		return rec, fmt.Errorf("snapshot %s saved, storing the manifest copy in the repository failed: %w", short(id), err)
+	}
+	if err := writeState(bp, "last-backup.json", rec); err != nil {
+		return rec, err
+	}
+	if rec.Forgotten, err = retain(ctx, bp, r); err != nil {
+		return rec, fmt.Errorf("snapshot %s saved, retention failed: %w", short(id), err)
+	}
 	return rec, writeState(bp, "last-backup.json", rec)
+}
+
+// retain applies keep_last, but never forgets the newest snapshot that passed a drill:
+// if every recent backup is of damaged data, the last good one is still there.
+func retain(ctx context.Context, bp *blueprint.Blueprint, r Restic) ([]string, error) {
+	keep := bp.Backup.KeepLast
+	if keep <= 0 {
+		return nil, nil
+	}
+	sl, ok1 := r.(snapshotLister)
+	fg, ok2 := r.(idForgetter)
+	if !ok1 || !ok2 {
+		return nil, r.Forget(ctx, Tag, keep)
+	}
+	snaps, err := sl.Snapshots(ctx, Tag)
+	if err != nil {
+		return nil, err
+	}
+	verified, _ := LastVerified(bp)
+	mine := snaps[:0:0]
+	for _, s := range snaps {
+		if hasTag(s, "fortress:"+bp.Fortress) && samePaths(s.Paths, bp.VolumePaths()) {
+			mine = append(mine, s)
+		}
+	}
+	snaps = mine
+	var drop []string
+	for i, s := range snaps {
+		if i >= len(snaps)-keep || s.ID == verified.Snapshot || !validID(s.ID) {
+			continue
+		}
+		drop = append(drop, s.ID)
+	}
+	if len(drop) == 0 {
+		return nil, nil
+	}
+	dropped := map[string]bool{}
+	for _, id := range drop {
+		dropped[id] = true
+	}
+	if copies, err := sl.Snapshots(ctx, ManifestTag); err == nil {
+		for _, c := range copies {
+			if dropped[copyTarget(c)] && validID(c.ID) {
+				drop = append(drop, c.ID)
+			}
+		}
+	}
+	if err := fg.ForgetIDs(ctx, drop); err != nil {
+		return nil, err
+	}
+	for id := range dropped {
+		if mp, err := statePath(bp, "manifests", id+".json"); err == nil {
+			_ = os.Remove(mp)
+		}
+	}
+	var out []string
+	for _, s := range snaps {
+		if dropped[s.ID] {
+			out = append(out, s.ID)
+		}
+	}
+	return out, nil
+}
+
+func samePaths(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	a, b = append([]string(nil), a...), append([]string(nil), b...)
+	sort.Strings(a)
+	sort.Strings(b)
+	for i := range a {
+		if filepath.Clean(a[i]) != filepath.Clean(b[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// VerifiedRecord names the newest snapshot that survived a drill.
+type VerifiedRecord struct {
+	Snapshot string    `json:"snapshot"`
+	Time     time.Time `json:"time"`
+}
+
+// LastVerified reads the newest snapshot that survived a drill, if any.
+func LastVerified(bp *blueprint.Blueprint) (VerifiedRecord, bool) {
+	var r VerifiedRecord
+	return r, readState(bp, "last-verified.json", &r) == nil
 }
 
 // DrillOptions tune a breach drill.
@@ -114,7 +253,22 @@ type DrillOptions struct {
 	SignKey ed25519.PrivateKey
 	// Now overrides the clock for tests.
 	Now func() time.Time
+	// Snapshot drills this snapshot (ID or unique prefix) instead of the latest.
+	Snapshot string
+	// Sample also drills up to this many randomly chosen older snapshots.
+	Sample int
+	// ManifestKey, when set, requires the manifest copy in the repository to be signed by it.
+	ManifestKey ed25519.PublicKey
+	// FreeBytes reports free space under a directory; nil uses the file system. Tests
+	// replace it to simulate a full disk.
+	FreeBytes func(dir string) (uint64, error)
 }
+
+// ErrNoSpace is returned when the drill's temp directory cannot hold the restore.
+var ErrNoSpace = errors.New("not enough free space for the drill restore")
+
+// clockSlack is how far in the future a snapshot may be stamped before the drill warns.
+const clockSlack = 5 * time.Minute
 
 // DrillReport is the outcome of a breach drill.
 type DrillReport struct {
@@ -210,9 +364,10 @@ func drill(ctx context.Context, bp *blueprint.Blueprint, r Restic, opt DrillOpti
 		return err
 	}
 	var snap restic.Snapshot
+	var all []restic.Snapshot
 	err := step(report.PhaseLocate, func() error {
 		var err error
-		if snap, err = r.Latest(ctx, Tag); err != nil {
+		if snap, all, err = locate(ctx, r, opt.Snapshot); err != nil {
 			return err
 		}
 		if !validID(snap.ID) {
@@ -227,14 +382,18 @@ func drill(ctx context.Context, bp *blueprint.Blueprint, r Restic, opt DrillOpti
 	if err != nil {
 		return err
 	}
+	if t := snap.When(); !t.IsZero() && t.After(in.Started.Add(clockSlack)) {
+		in.Warnings = append(in.Warnings, fmt.Sprintf(
+			"Snapshot %s is stamped %s, %s in the future. The clock of the host that took it was wrong, so restic sorts it as the newest even if later backups exist. Fix the clock (NTP), then run `sapper breach --snapshot <id>` on the snapshot you expect.",
+			short(snap.ID), t.UTC().Format(time.RFC3339), report.Dur(t.Sub(in.Started).Round(time.Minute))))
+	}
 	var m *manifest.Manifest
+	var mismatch *manifest.Problem
 	if err := step(report.PhaseManifest, func() error {
-		mp, err := statePath(bp, "manifests", snap.ID+".json")
+		var err error
+		m, mismatch, err = loadManifest(ctx, bp, r, snap.ID, opt.ManifestKey, in)
 		if err != nil {
 			return err
-		}
-		if m, err = manifest.Load(mp); err != nil {
-			return fmt.Errorf("manifest for snapshot %s: %w", short(snap.ID), err)
 		}
 		in.MerkleRoot = m.MerkleRoot()
 		return nil
@@ -247,7 +406,10 @@ func drill(ctx context.Context, bp *blueprint.Blueprint, r Restic, opt DrillOpti
 		if dir, err = os.MkdirTemp(opt.TempRoot, "sapper-drill-*"); err != nil {
 			return err
 		}
-		return checkIsolated(dir, bp)
+		if err := checkIsolated(dir, bp); err != nil {
+			return err
+		}
+		return checkSpace(dir, m, opt.FreeBytes)
 	}); dir != "" {
 		if !opt.Keep {
 			defer os.RemoveAll(dir)
@@ -278,6 +440,17 @@ func drill(ctx context.Context, bp *blueprint.Blueprint, r Restic, opt DrillOpti
 	}); err != nil {
 		return err
 	}
+	if mismatch != nil {
+		res.Problems = append(res.Problems, *mismatch)
+	}
+	if opt.Sample > 0 {
+		_ = step(PhaseOlder, func() error {
+			older, problems := drillOlder(ctx, bp, r, opt, snap.ID, all, in)
+			in.Older = older
+			res.Problems = append(res.Problems, problems...)
+			return nil
+		})
+	}
 	rep.Checked, rep.Bytes, rep.Problems = res.Checked, res.Bytes, res.Problems
 	in.Result = &res
 	if ferr == nil {
@@ -290,7 +463,188 @@ func drill(ctx context.Context, bp *blueprint.Blueprint, r Restic, opt DrillOpti
 			return nil
 		})
 	}
+	if len(res.Problems) == 0 {
+		_ = writeState(bp, "last-verified.json", VerifiedRecord{Snapshot: snap.ID, Time: in.Started.UTC()})
+	}
 	return nil
+}
+
+// PhaseOlder is the drill phase that restores sampled older snapshots.
+const PhaseOlder = "older snapshots"
+
+// locate finds the snapshot to drill: the given ID or prefix, or the latest.
+func locate(ctx context.Context, r Restic, want string) (restic.Snapshot, []restic.Snapshot, error) {
+	sl, ok := r.(snapshotLister)
+	if !ok {
+		if want != "" {
+			return restic.Snapshot{}, nil, errors.New("this restic client cannot list snapshots")
+		}
+		s, err := r.Latest(ctx, Tag)
+		return s, nil, err
+	}
+	all, err := sl.Snapshots(ctx, Tag)
+	if err != nil {
+		return restic.Snapshot{}, nil, err
+	}
+	if len(all) == 0 {
+		return restic.Snapshot{}, nil, restic.ErrNoSnapshot
+	}
+	if want == "" {
+		return all[len(all)-1], all, nil
+	}
+	var hits []restic.Snapshot
+	for _, s := range all {
+		if strings.HasPrefix(s.ID, want) {
+			hits = append(hits, s)
+		}
+	}
+	switch len(hits) {
+	case 0:
+		return restic.Snapshot{}, all, fmt.Errorf("no sapper snapshot with ID %s", report.Clean(want))
+	case 1:
+		return hits[0], all, nil
+	}
+	return restic.Snapshot{}, all, fmt.Errorf("snapshot ID %s is ambiguous; give more characters", report.Clean(want))
+}
+
+// loadManifest returns the manifest for snapshot id: the local one, checked against the
+// copy in the repository, or the repository copy alone when this machine has none.
+func loadManifest(ctx context.Context, bp *blueprint.Blueprint, r Restic, id string, pub ed25519.PublicKey, in *report.Input) (*manifest.Manifest, *manifest.Problem, error) {
+	mp, err := statePath(bp, "manifests", id+".json")
+	if err != nil {
+		return nil, nil, err
+	}
+	local, lerr := manifest.Load(mp)
+	remote, signed, found, rerr := loadCopy(ctx, r, id, pub)
+	switch {
+	case rerr != nil && (errors.Is(rerr, ErrManifestSignature) || errors.Is(rerr, ErrManifestConflict) || lerr != nil):
+		return nil, nil, fmt.Errorf("manifest for snapshot %s: repository copy: %w", short(id), rerr)
+	case rerr != nil:
+		in.Warnings = append(in.Warnings, "The manifest copy in the repository could not be read ("+report.CleanLines(rerr.Error())+"). The drill used the local manifest only.")
+	}
+	if lerr != nil {
+		if !found {
+			return nil, nil, fmt.Errorf("manifest for snapshot %s: %w", short(id), lerr)
+		}
+		how := "unsigned"
+		if signed {
+			how = "signed"
+		}
+		in.Warnings = append(in.Warnings, fmt.Sprintf("No local manifest for snapshot %s on this machine; the drill used the %s copy stored in the repository at backup time.", short(id), how))
+		return remote, nil, nil
+	}
+	if pub != nil && !found {
+		return nil, nil, fmt.Errorf("manifest for snapshot %s: %w: no copy in the repository to check the signature of", short(id), ErrManifestSignature)
+	}
+	if found && rerr == nil && remote.Sum() != local.Sum() {
+		p := &manifest.Problem{Path: "manifest " + short(id), Kind: manifest.ProblemManifest,
+			Reason:   "local manifest differs from the copy stored in the repository at backup time",
+			Expected: "merkle " + remote.MerkleRoot(), Actual: "merkle " + local.MerkleRoot()}
+		if signed {
+			// The signed copy is the one to trust; verify against it.
+			return remote, p, nil
+		}
+		return local, p, nil
+	}
+	if !found {
+		in.Warnings = append(in.Warnings, "The repository holds no manifest copy for this snapshot (taken before sapper stored one). A drill from another machine could not check it.")
+	}
+	return local, nil, nil
+}
+
+// checkSpace refuses a restore that cannot fit in the temp directory.
+func checkSpace(dir string, m *manifest.Manifest, free func(string) (uint64, error)) error {
+	if free == nil {
+		free = freeBytes
+	}
+	var need uint64
+	for _, e := range m.Entries {
+		if e.Size > 0 {
+			need += uint64(e.Size)
+		}
+	}
+	have, err := free(dir)
+	if err != nil {
+		return nil // unknown on this platform; restic will report a full disk itself
+	}
+	if have < need+need/10 {
+		return fmt.Errorf("%w: %s needs about %s, %s is free in %s. Pass --temp-dir on a larger disk",
+			ErrNoSpace, "the restore", report.Bytes(int64(need)), report.Bytes(int64(min(have, 1<<62))), filepath.Dir(dir))
+	}
+	return nil
+}
+
+// drillOlder restores and verifies up to opt.Sample randomly chosen snapshots older than latest.
+func drillOlder(ctx context.Context, bp *blueprint.Blueprint, r Restic, opt DrillOptions, latest string, all []restic.Snapshot, in *report.Input) ([]report.OlderResult, []manifest.Problem) {
+	var pool []restic.Snapshot
+	for _, s := range all {
+		if s.ID != latest && validID(s.ID) {
+			pool = append(pool, s)
+		}
+	}
+	rand.Shuffle(len(pool), func(i, j int) { pool[i], pool[j] = pool[j], pool[i] })
+	pool = pool[:min(opt.Sample, len(pool))]
+	restic.SortByTime(pool)
+	var out []report.OlderResult
+	var problems []manifest.Problem
+	for _, s := range pool {
+		o := report.OlderResult{ID: s.ID, Time: s.When().UTC()}
+		var scratch report.Input
+		m, mismatch, err := loadManifest(ctx, bp, r, s.ID, opt.ManifestKey, &scratch)
+		if err != nil {
+			o.Verdict, o.Error = report.NoVerdict, "no manifest to check against"
+			out = append(out, o)
+			continue
+		}
+		res, err := restoreVerify(ctx, bp, r, opt, s.ID, m)
+		switch {
+		case err != nil:
+			o.Verdict, o.Error = report.Breached, "restore failed: "+firstLine(err.Error())
+			o.Problems = 1
+		default:
+			if mismatch != nil {
+				res.Problems = append(res.Problems, *mismatch)
+			}
+			o.Checked, o.Problems = res.Checked, len(res.Problems)
+			o.Verdict = report.Survived
+			if o.Problems > 0 {
+				o.Verdict = report.Breached
+			}
+		}
+		if o.Verdict == report.Breached {
+			detail := fmt.Sprintf("%d problems", o.Problems)
+			if o.Error != "" {
+				detail = o.Error
+			}
+			problems = append(problems, manifest.Problem{Path: "snapshot " + short(s.ID), Kind: manifest.ProblemOlder,
+				Reason: "older snapshot did not restore cleanly", Expected: "restores and matches its manifest", Actual: detail})
+		}
+		out = append(out, o)
+	}
+	return out, problems
+}
+
+func restoreVerify(ctx context.Context, bp *blueprint.Blueprint, r Restic, opt DrillOptions, id string, m *manifest.Manifest) (manifest.Result, error) {
+	dir, err := os.MkdirTemp(opt.TempRoot, "sapper-drill-*")
+	if err != nil {
+		return manifest.Result{}, err
+	}
+	defer os.RemoveAll(dir)
+	if err := checkIsolated(dir, bp); err != nil {
+		return manifest.Result{}, err
+	}
+	if err := checkSpace(dir, m, opt.FreeBytes); err != nil {
+		return manifest.Result{}, err
+	}
+	if err := r.Restore(ctx, id, dir); err != nil {
+		return manifest.Result{}, err
+	}
+	return manifest.Verify(m, dir)
+}
+
+func firstLine(s string) string {
+	s, _, _ = strings.Cut(s, "\n")
+	return report.Fit(s, 160)
 }
 
 // volumes lists every backed-up host directory with the app and mount it belongs to.

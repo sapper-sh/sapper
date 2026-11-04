@@ -34,7 +34,7 @@ func TestEndToEndRealRestic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rec, err := Backup(ctx, bp, c)
+	rec, err := Backup(ctx, bp, c, BackupOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +103,7 @@ func TestDrillDoesNotTrustResticCache(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Backup(ctx, bp, c); err != nil {
+	if _, err := Backup(ctx, bp, c, BackupOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	var packs []string

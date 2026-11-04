@@ -25,7 +25,7 @@ func TestEveryDrillLeavesAChainedReport(t *testing.T) {
 	if r := rep.Report; r == nil || r.Verdict != report.NoVerdict || r.Headline != "There is no backup to test yet." || rep.ReportErr != nil {
 		t.Fatalf("no-snapshot report: %+v err %v", r, rep.ReportErr)
 	}
-	if _, err := Backup(ctx, bp, fr); err != nil {
+	if _, err := Backup(ctx, bp, fr, BackupOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	_, pub, priv := keyPair(t)
@@ -70,7 +70,7 @@ func TestEveryDrillLeavesAChainedReport(t *testing.T) {
 func TestReportFlagsLiveChangeDuringDrill(t *testing.T) {
 	bp := newFortress(t)
 	fr := &fakeRestic{snapDir: t.TempDir()}
-	if _, err := Backup(context.Background(), bp, fr); err != nil {
+	if _, err := Backup(context.Background(), bp, fr, BackupOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	live := filepath.Join(bp.VolumePaths()[2], "nested", "data.db")
@@ -90,7 +90,7 @@ func TestReportRecordsMissedTargets(t *testing.T) {
 	bp := newFortress(t)
 	bp.Targets.RPO = "1h"
 	fr := &fakeRestic{snapDir: t.TempDir()}
-	if _, err := Backup(context.Background(), bp, fr); err != nil {
+	if _, err := Backup(context.Background(), bp, fr, BackupOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	rep, err := Breach(context.Background(), bp, fr, DrillOptions{Now: func() time.Time { return time.Date(2026, 11, 6, 0, 0, 0, 0, time.UTC) }})
