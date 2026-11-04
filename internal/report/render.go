@@ -27,6 +27,7 @@ type View struct {
 	Width int            // terminal columns; 0 means unknown
 	Loc   *time.Location // zone for displayed times; nil means local
 	Path  string         // where the report was saved, if it was
+	Plain bool           // no art frame: verdict as plain lines, for grep and screen readers
 }
 
 func (v View) width() int {
@@ -58,10 +59,17 @@ func Terminal(r *Report, v View) string {
 		Word:     spaced[r.Verdict],
 		Neutral:  r.Verdict == NoVerdict,
 	}
-	inner := min(w, art.FrameWidth) - 4
-	box.Lines = append(box.Lines, wrap(r.Headline, inner)...)
-	box.Lines = append(box.Lines, wrap(r.Why, inner)...)
-	b.WriteString(box.Render(v.Color))
+	if v.Plain {
+		fmt.Fprintf(&b, "%s  breach drill, %s\n", r.Verdict, r.Fortress)
+		for _, l := range append(wrap(r.Headline, w), wrap(r.Why, w)...) {
+			b.WriteString(l + "\n")
+		}
+	} else {
+		inner := min(w, art.FrameWidth) - 4
+		box.Lines = append(box.Lines, wrap(r.Headline, inner)...)
+		box.Lines = append(box.Lines, wrap(r.Why, inner)...)
+		b.WriteString(box.Render(v.Color))
+	}
 
 	s := sectioner{b: &b, w: w}
 	s.head("What was tested")

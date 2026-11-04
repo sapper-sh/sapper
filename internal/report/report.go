@@ -216,7 +216,7 @@ func Build(in Input) *Report {
 	case in.Err != nil || in.Result == nil:
 		r.Verdict = NoVerdict
 		if in.Err != nil {
-			r.Error = Clean(in.Err.Error())
+			r.Error = CleanLines(in.Err.Error())
 		} else {
 			r.Error = "verification did not run"
 		}

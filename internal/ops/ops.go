@@ -165,8 +165,13 @@ func Breach(ctx context.Context, bp *blueprint.Blueprint, r Restic, opt DrillOpt
 	rep.Duration = now().Sub(start)
 	in.Took = rep.Duration
 	if err != nil {
-		in.Err = err
-		in.NoSnapshot = errors.Is(err, restic.ErrNoSnapshot)
+		// restic's messages can echo the repository string; never let a URL password reach a report.
+		msg := err.Error()
+		if loc, red := bp.RepoLocation(), bp.RedactedRepo(); loc != red {
+			msg = strings.ReplaceAll(msg, loc, red)
+		}
+		in.Err = errors.New(msg)
+		in.NoSnapshot = errors.Is(err, restic.ErrNoSnapshot) || errors.Is(err, restic.ErrNoRepository)
 	}
 	rep.Report = report.Build(in)
 	if store, serr := Reports(bp); serr != nil {

@@ -3,6 +3,8 @@ package ops
 import (
 	"context"
 	"crypto/ed25519"
+	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +13,7 @@ import (
 
 	"github.com/sapper-unbuilt/sapper/internal/manifest"
 	"github.com/sapper-unbuilt/sapper/internal/report"
+	"github.com/sapper-unbuilt/sapper/internal/restic"
 )
 
 func TestEveryDrillLeavesAChainedReport(t *testing.T) {
@@ -111,4 +114,27 @@ func keyPair(t *testing.T) (string, ed25519.PublicKey, ed25519.PrivateKey) {
 		t.Fatal(err)
 	}
 	return p, pub, priv
+}
+
+type failingRestic struct {
+	fakeRestic
+	err error
+}
+
+func (f *failingRestic) Latest(context.Context, string) (restic.Snapshot, error) {
+	return restic.Snapshot{}, f.err
+}
+
+// restic error output can quote the repository; the report is meant to be shared, so a URL
+// password must never reach it.
+func TestReportRedactsRepositoryPassword(t *testing.T) {
+	bp := newFortress(t)
+	bp.Backup.Repository = "rest:https://drill:hunter2@backup.example/fortress"
+	fr := &failingRestic{err: errors.New("restic snapshots: Fatal: unable to open repository at " + bp.RepoLocation() + ": 401")}
+	rep, _ := Breach(context.Background(), bp, fr, DrillOptions{})
+	data, _ := json.Marshal(rep.Report)
+	md := report.Markdown(rep.Report)
+	if strings.Contains(string(data), "hunter2") || strings.Contains(md, "hunter2") || !strings.Contains(rep.Report.Error, "drill:***@") {
+		t.Fatalf("password leaked or not redacted: %s", rep.Report.Error)
+	}
 }

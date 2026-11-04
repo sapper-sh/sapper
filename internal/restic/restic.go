@@ -20,6 +20,9 @@ var ErrNotInstalled = errors.New("restic not found in PATH; install it from http
 // ErrNoSnapshot is returned when the repository holds no matching snapshot.
 var ErrNoSnapshot = errors.New("no snapshot found; run `sapper backup` first")
 
+// ErrNoRepository is returned when there is no restic repository at the configured location.
+var ErrNoRepository = errors.New("no restic repository at the configured location yet; `sapper backup` creates it")
+
 // Client runs restic against one repository.
 type Client struct {
 	Bin        string
@@ -146,6 +149,10 @@ type Snapshot struct {
 // Latest returns the newest snapshot carrying tag.
 func (c *Client) Latest(ctx context.Context, tag string) (Snapshot, error) {
 	out, err := c.run(ctx, "snapshots", "--json", "--tag", tag, "--latest", "1")
+	var exit *exec.ExitError
+	if errors.As(err, &exit) && exit.ExitCode() == 10 {
+		return Snapshot{}, ErrNoRepository
+	}
 	if err != nil {
 		return Snapshot{}, err
 	}

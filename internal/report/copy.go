@@ -37,7 +37,7 @@ func headline(r *Report, in Input) (string, string) {
 	}
 	switch {
 	case in.NoSnapshot:
-		return "There is no backup to test yet.", "The repository has no snapshot tagged by sapper."
+		return "There is no backup to test yet.", "The repository does not exist yet or has no snapshot tagged by sapper."
 	case in.ErrPhase == PhaseManifest:
 		return "This backup cannot be checked from here.", fmt.Sprintf("The checksum manifest for snapshot %s is not on this machine.", snap)
 	case in.ErrPhase == PhaseIsolation:
@@ -247,6 +247,18 @@ func Clean(s string) string {
 		return strconv.QuoteToGraphic(s)
 	}
 	return s
+}
+
+// CleanLines is Clean for multi-line text such as a tool's error output: each line is
+// cleaned on its own and the lines are joined with " | ", so the result is one line.
+func CleanLines(s string) string {
+	var out []string
+	for _, l := range strings.Split(strings.TrimSpace(s), "\n") {
+		if l = strings.TrimSpace(strings.TrimSuffix(l, "\r")); l != "" {
+			out = append(out, Clean(l))
+		}
+	}
+	return strings.Join(out, " | ")
 }
 
 // Fit shortens s to at most n runes by cutting the middle, keeping the start and the
