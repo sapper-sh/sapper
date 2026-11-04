@@ -7,9 +7,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/sapper-unbuilt/sapper/internal/manifest"
+	"github.com/sapper-unbuilt/sapper/internal/report"
 	"github.com/sapper-unbuilt/sapper/internal/restic"
 )
 
@@ -50,6 +52,10 @@ func TestEndToEndRealRestic(t *testing.T) {
 	if rep.Snapshot != rec.Snapshot || rep.Checked != len(live.Entries) {
 		t.Fatalf("report %+v does not match backup %+v (%d entries)", rep, rec, len(live.Entries))
 	}
+	if r := rep.Report; r.Verdict != report.Survived || r.Snapshot.ID != rec.Snapshot || r.Evidence.Matched != len(live.Entries) ||
+		!r.Isolation.LiveUntouched || r.Evidence.MerkleRoot != live.MerkleRoot() || r.Snapshot.Time.IsZero() || rep.ReportErr != nil {
+		t.Fatalf("survived report: %+v (save error %v)", r, rep.ReportErr)
+	}
 
 	var corrupted string
 	rep, err = Breach(ctx, bp, c, DrillOptions{BeforeVerify: func(dir string) error {
@@ -58,6 +64,16 @@ func TestEndToEndRealRestic(t *testing.T) {
 	}})
 	if !errors.Is(err, ErrBreached) || rep.Survived() {
 		t.Fatalf("corrupted drill: err = %v survived = %v", err, rep.Survived())
+	}
+	f := rep.Report.Evidence.Findings
+	if rep.Report.Verdict != report.Breached || len(f) != 1 || f[0].Kind != manifest.ProblemSize ||
+		!strings.Contains(f[0].Path, filepath.Join("nested", "data.db")) || !strings.Contains(f[0].Actual, "6 bytes") {
+		t.Fatalf("breached report findings: %+v", f)
+	}
+	store, _ := Reports(bp)
+	all, _ := store.List()
+	if issues := report.VerifyChain(all, nil, rep.Report.Hash); len(all) != 2 || len(issues) != 0 {
+		t.Fatalf("chain of %d: %+v", len(all), issues)
 	}
 	if _, statErr := os.Stat(corrupted); !os.IsNotExist(statErr) {
 		t.Fatalf("throwaway restore not removed: %v", statErr)

@@ -3,17 +3,20 @@ package ops
 
 import (
 	"context"
+	"crypto/ed25519"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/sapper-unbuilt/sapper/internal/blueprint"
 	"github.com/sapper-unbuilt/sapper/internal/manifest"
 	"github.com/sapper-unbuilt/sapper/internal/paths"
+	"github.com/sapper-unbuilt/sapper/internal/report"
 	"github.com/sapper-unbuilt/sapper/internal/restic"
 )
 
@@ -107,6 +110,10 @@ type DrillOptions struct {
 	Keep bool
 	// BeforeVerify runs after restore and before verification. Tests use it to inject damage.
 	BeforeVerify func(restoreDir string) error
+	// SignKey, when set, signs the evidence report.
+	SignKey ed25519.PrivateKey
+	// Now overrides the clock for tests.
+	Now func() time.Time
 }
 
 // DrillReport is the outcome of a breach drill.
@@ -120,6 +127,14 @@ type DrillReport struct {
 	Bytes      int64              `json:"bytes"`
 	Problems   []manifest.Problem `json:"problems"`
 	RestoreDir string             `json:"restore_dir,omitempty"`
+	ReportSeq  int                `json:"report_seq,omitempty"`
+
+	// Report is the evidence report for this drill. Every drill that starts produces one,
+	// including drills that stop before a verdict.
+	Report *report.Report `json:"-"`
+	// ReportPath is where the report was saved; ReportErr says why it was not.
+	ReportPath string `json:"-"`
+	ReportErr  error  `json:"-"`
 }
 
 // Survived reports whether the restore matched the manifest exactly.
@@ -130,51 +145,39 @@ var ErrBreached = errors.New("breach drill failed")
 
 // Breach restores the latest snapshot into a fresh temporary directory and verifies it.
 // Live volumes are never written: the restore target is checked to lie outside every volume and the repository.
+// Whatever the outcome, it builds an evidence report and appends it to the fortress's report chain.
 func Breach(ctx context.Context, bp *blueprint.Blueprint, r Restic, opt DrillOptions) (DrillReport, error) {
-	start := time.Now()
+	now := opt.Now
+	if now == nil {
+		now = time.Now
+	}
+	start := now()
 	rep := DrillReport{Fortress: bp.Fortress, Time: start.UTC()}
-	snap, err := r.Latest(ctx, Tag)
+	in := report.Input{
+		Fortress:  bp.Fortress,
+		Repo:      bp.RedactedRepo(),
+		Volumes:   volumes(bp),
+		Started:   start,
+		TargetRTO: bp.Targets.RTODuration(),
+		TargetRPO: bp.Targets.RPODuration(),
+	}
+	err := drill(ctx, bp, r, opt, &rep, &in)
+	rep.Duration = now().Sub(start)
+	in.Took = rep.Duration
 	if err != nil {
-		return rep, err
+		in.Err = err
+		in.NoSnapshot = errors.Is(err, restic.ErrNoSnapshot)
 	}
-	rep.Snapshot, rep.SnapshotAt = snap.ID, snap.Time
-	if !validID(snap.ID) {
-		return rep, fmt.Errorf("restic returned an invalid snapshot id %q", snap.ID)
-	}
-	mp, err := statePath(bp, "manifests", snap.ID+".json")
-	if err != nil {
-		return rep, err
-	}
-	m, err := manifest.Load(mp)
-	if err != nil {
-		return rep, fmt.Errorf("manifest for snapshot %s: %w", short(snap.ID), err)
-	}
-	dir, err := os.MkdirTemp(opt.TempRoot, "sapper-drill-*")
-	if err != nil {
-		return rep, err
-	}
-	if !opt.Keep {
-		defer os.RemoveAll(dir)
+	rep.Report = report.Build(in)
+	if store, serr := Reports(bp); serr != nil {
+		rep.ReportErr = serr
 	} else {
-		rep.RestoreDir = dir
+		rep.ReportPath, rep.ReportErr = store.Append(rep.Report, opt.SignKey)
+		rep.ReportSeq = rep.Report.Seq
 	}
-	if err := checkIsolated(dir, bp); err != nil {
-		return rep, err
-	}
-	if err := r.Restore(ctx, snap.ID, dir); err != nil {
-		return rep, err
-	}
-	if opt.BeforeVerify != nil {
-		if err := opt.BeforeVerify(dir); err != nil {
-			return rep, err
-		}
-	}
-	res, err := manifest.Verify(m, dir)
 	if err != nil {
 		return rep, err
 	}
-	rep.Checked, rep.Bytes, rep.Problems = res.Checked, res.Bytes, res.Problems
-	rep.Duration = time.Since(start)
 	if err := writeState(bp, "last-drill.json", rep); err != nil {
 		return rep, err
 	}
@@ -182,6 +185,127 @@ func Breach(ctx context.Context, bp *blueprint.Blueprint, r Restic, opt DrillOpt
 		return rep, ErrBreached
 	}
 	return rep, nil
+}
+
+// drill runs the steps of a breach drill, timing each one into in.Phases.
+func drill(ctx context.Context, bp *blueprint.Blueprint, r Restic, opt DrillOptions, rep *DrillReport, in *report.Input) error {
+	step := func(name string, f func() error) error {
+		t := time.Now()
+		err := f()
+		in.Phases = append(in.Phases, report.Phase{Name: name, MS: time.Since(t).Milliseconds()})
+		if err != nil {
+			in.ErrPhase = name
+		}
+		return err
+	}
+	var snap restic.Snapshot
+	err := step(report.PhaseLocate, func() error {
+		var err error
+		if snap, err = r.Latest(ctx, Tag); err != nil {
+			return err
+		}
+		if !validID(snap.ID) {
+			return fmt.Errorf("restic returned an invalid snapshot id %q", snap.ID)
+		}
+		return nil
+	})
+	rep.Snapshot, rep.SnapshotAt = snap.ID, snap.Time
+	if validID(snap.ID) {
+		in.SnapshotID, in.SnapshotAt = snap.ID, snap.Time
+	}
+	if err != nil {
+		return err
+	}
+	var m *manifest.Manifest
+	if err := step(report.PhaseManifest, func() error {
+		mp, err := statePath(bp, "manifests", snap.ID+".json")
+		if err != nil {
+			return err
+		}
+		if m, err = manifest.Load(mp); err != nil {
+			return fmt.Errorf("manifest for snapshot %s: %w", short(snap.ID), err)
+		}
+		in.MerkleRoot = m.MerkleRoot()
+		return nil
+	}); err != nil {
+		return err
+	}
+	var dir string
+	if err := step(report.PhaseIsolation, func() error {
+		var err error
+		if dir, err = os.MkdirTemp(opt.TempRoot, "sapper-drill-*"); err != nil {
+			return err
+		}
+		return checkIsolated(dir, bp)
+	}); dir != "" {
+		if !opt.Keep {
+			defer os.RemoveAll(dir)
+		} else {
+			rep.RestoreDir, in.KeptCopy = dir, dir
+		}
+		if err != nil {
+			return err
+		}
+	} else if err != nil {
+		return err
+	}
+	in.Isolated = true
+	before, ferr := manifest.Fingerprint(bp.VolumePaths())
+	if err := step(report.PhaseRestore, func() error { return r.Restore(ctx, snap.ID, dir) }); err != nil {
+		return err
+	}
+	if opt.BeforeVerify != nil {
+		if err := opt.BeforeVerify(dir); err != nil {
+			return err
+		}
+	}
+	var res manifest.Result
+	if err := step(report.PhaseVerify, func() error {
+		var err error
+		res, err = manifest.Verify(m, dir)
+		return err
+	}); err != nil {
+		return err
+	}
+	rep.Checked, rep.Bytes, rep.Problems = res.Checked, res.Bytes, res.Problems
+	in.Result = &res
+	if ferr == nil {
+		_ = step(report.PhaseLiveCheck, func() error {
+			after, err := manifest.Fingerprint(bp.VolumePaths())
+			if err != nil {
+				return nil
+			}
+			in.LiveCheck, in.LiveDiff = true, manifest.FingerprintDiff(before, after)
+			return nil
+		})
+	}
+	return nil
+}
+
+// volumes lists every backed-up host directory with the app and mount it belongs to.
+func volumes(bp *blueprint.Blueprint) []report.Volume {
+	var out []report.Volume
+	for _, name := range bp.AppNames() {
+		app := bp.Apps[name]
+		mounts := make([]string, 0, len(app.Volumes))
+		for k := range app.Volumes {
+			mounts = append(mounts, k)
+		}
+		sort.Strings(mounts)
+		for _, k := range mounts {
+			out = append(out, report.Volume{App: name, Mount: k, Path: bp.HostPath(app.Volumes[k])})
+		}
+	}
+	return out
+}
+
+// Reports returns the report store for bp.
+func Reports(bp *blueprint.Blueprint) (report.Store, error) {
+	sd, err := StateDir(bp)
+	if err != nil {
+		return report.Store{}, err
+	}
+	return report.Store{Dir: filepath.Join(sd, "reports")}, nil
 }
 
 // checkIsolated refuses restore targets that overlap live data or the repository.
