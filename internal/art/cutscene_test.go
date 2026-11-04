@@ -46,7 +46,7 @@ func TestCutsceneBounds(t *testing.T) {
 
 func TestCutsceneEndings(t *testing.T) {
 	red := Accent.fg()
-	for e, want := range map[Ending]string{EndSurvived: "S U R V I V E D", EndBreached: "B R E A C H E D", EndNone: "N O   D R I L L"} {
+	for e, want := range map[Ending]string{EndSurvived: "SURVIVED", EndBreached: "BREACHED", EndNone: "NO DRILL YET"} {
 		c := NewCutscene(e, "The final line.", 1)
 		last := c.Frames() - 1
 		if !strings.Contains(strings.Join(c.Text(last), "\n"), want) {

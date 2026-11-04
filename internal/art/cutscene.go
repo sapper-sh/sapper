@@ -102,9 +102,7 @@ func NewCutscene(e Ending, final string, seed uint64) *Cutscene {
 	for i := 0; i < 45; i++ {
 		c.flakes = append(c.flakes, [4]float64{rng.Float64() * SceneW, rng.Float64() * pxH, .5 + rng.Float64(), float64(i % 3)})
 	}
-	for _, l := range Lines(Compact) {
-		c.emblem = append(c.emblem, strings.Replace(l, "by the sapper of the unbuilt", "BY THE SAPPER OF THE UNBUILT", 1))
-	}
+	c.emblem = append(c.emblem, Lines(Compact)...)
 	return c
 }
 
@@ -1497,11 +1495,11 @@ func (c *Cutscene) overlay(f *frame, out *[CutH][SceneW]Cell) {
 		red := false
 		switch c.Ending {
 		case EndSurvived:
-			s = "S U R V I V E D"
+			s = "SURVIVED"
 		case EndBreached:
-			s, red = "B R E A C H E D", true
+			s, red = "BREACHED", true
 		default:
-			s = "N O   D R I L L   Y E T"
+			s = "NO DRILL YET"
 		}
 		full := []rune("▓▒░  " + s + "  ░▒▓")
 		x0 := (SceneW - len(full)) / 2

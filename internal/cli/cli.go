@@ -65,7 +65,7 @@ func Main(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 func (a *app) rootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:   "sapper",
-		Short: "Self-hosted fortress builder with verified backups and breach drills",
+		Short: "Self-hosted apps with backups that are restored and checked, not assumed",
 		Long: `sapper turns a Linux host into a self-hosted fortress described by a blueprint,
 backs its data up with restic, and runs breach drills that restore the latest
 backup into a throwaway directory and verify every file against checksums

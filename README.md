@@ -1,11 +1,8 @@
-> DRAFT. Placeholder text to be rewritten by the author.
-
 # sapper
 
-sapper turns a Linux host into a small self-hosted fortress described by one
-blueprint file, backs the data up with restic, and runs breach drills: it
-restores the latest backup into a throwaway directory, checks every file against
-checksums recorded at backup time, and prints SURVIVED or BREACHED.
+sapper runs self-hosted apps from one blueprint file, backs them up with restic,
+and regularly proves the backups by restoring them into a throwaway directory
+and checking every file. It prints SURVIVED or BREACHED.
 
 Drills only ever write to a fresh temporary directory. sapper refuses to run a
 drill whose restore directory overlaps a data volume, the repository or its own
@@ -210,3 +207,7 @@ your own data, for example "Your treasure survived the dragon 2 days ago. 13 of
 The pictures are drawn by `scripts/taleart.py` and the recording is made with
 `scripts/taletape.py`; see [docs/ART.md](docs/ART.md) for the art rules; individual panels are in
 [docs/img/tale/](docs/img/tale/).
+
+See [docs/NAME.md](docs/NAME.md) for the name and [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md) for what sapper does and does not defend against.
+
+— the sapper of the unbuilt

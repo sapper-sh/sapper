@@ -57,6 +57,19 @@ manifest stored in the per-user state directory, and runs breach drills that
 | T24 | Forged manifest copy planted by someone with the repository password (CWE-345) | optional ed25519 signature on the copy, required with `--pub-key`; differing copies for one snapshot refused; copy reads capped at 256 MiB | `TestManifestCopyRoundTripAndSignature`, sim S25 |
 | T25 | Repository URL password echoed by lock guidance (CWE-532) | lock guidance prints `<repository>`, not the URL | `TestClassifyExitCodes` |
 
+## Assumptions
+
+Each assumption below is one the verdict depends on; if it is false, the verdict
+can be wrong in the way stated.
+
+- The `restic` binary on the host is genuine. If it is not, both the backup and
+  the restore can be falsified together.
+- Checksums are taken at backup time on the same host. Data that was already
+  damaged when it was backed up restores "identical" and can still SURVIVE.
+- SURVIVED covers only the snapshot or snapshots actually drilled (the latest,
+  `--snapshot`, or `--sample`), at the time of the drill. It says nothing about
+  later snapshots.
+
 ## Residual risks / not addressed
 
 - **Image pinning by tag, not digest.** Catalogue images use version tags (`vaultwarden/server:1.32.7` …). A compromised registry account could re-push a tag. Pinning `@sha256:` digests needs a release process to refresh them.

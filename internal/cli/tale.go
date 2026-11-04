@@ -46,7 +46,7 @@ func (a *app) tell(noAnim bool, now time.Time) {
 		ending, panel := a.taleEnding(now)
 		e := map[string]art.Ending{"survived": art.EndSurvived, "breached": art.EndBreached}[panel]
 		a.runCutscene(art.NewCutscene(e, ending, uint64(now.UnixNano())))
-		fmt.Fprintln(w, "\n  The Tale of sapper, Sapper of the Unbuilt")
+		fmt.Fprintln(w, "\n  The Sapper of the Unbuilt")
 		for _, l := range wrapWords(ending, 74) {
 			fmt.Fprintln(w, "  "+l)
 		}
@@ -68,7 +68,7 @@ func (a *app) tell(noAnim bool, now time.Time) {
 	if !ascii {
 		rule = "  " + strings.Repeat("─", 40)
 	}
-	fmt.Fprintln(w, "\n  The Tale of sapper, Sapper of the Unbuilt")
+	fmt.Fprintln(w, "\n  The Sapper of the Unbuilt")
 	fmt.Fprintln(w, rule)
 	for i, ch := range art.Tale {
 		lines := art.TaleArt(ch.Art, ascii)

@@ -34,12 +34,12 @@ var Tale = []Chapter{
 		"everything from the secret copy and checks every single drawing.",
 		"Then it says SURVIVED, or BREACHED and how to fix it.",
 		"",
-		"It even notices when a sneaky monster tries to scribble over all",
+		"It notices, too, when something tries to scribble over all",
 		"your drawings at once, and keeps the old copy safe.",
 	}},
 	{"IV. The warden", "wizard", []string{
-		"sapper is the warden who summons a dragon every week and raises a ward,",
-		"so it is ready when a real one comes.",
+		"sapper is the warden. Every week it calls the dragon itself,",
+		"so the walls are tested before a real one comes.",
 	}},
 }
 
