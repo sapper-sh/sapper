@@ -11,7 +11,9 @@ import (
 	"regexp"
 	goruntime "runtime"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"gopkg.in/yaml.v3"
@@ -30,6 +32,7 @@ type Blueprint struct {
 	Apps     map[string]App `yaml:"apps"`
 	Backup   Backup         `yaml:"backup"`
 	Drill    Drill          `yaml:"drill"`
+	Targets  Targets        `yaml:"targets"`
 
 	// Dir is the directory containing the blueprint file; relative paths resolve against it.
 	Dir string `yaml:"-"`
@@ -52,6 +55,53 @@ type Backup struct {
 type Drill struct {
 	Schedule string `yaml:"schedule"`
 }
+
+// Targets are optional recovery objectives checked by every breach drill.
+// RTO is the longest acceptable restore-and-verify time; RPO the oldest acceptable
+// latest backup. Values are Go durations with an optional "d" for days: "15m", "24h", "7d".
+type Targets struct {
+	RTO string `yaml:"rto"`
+	RPO string `yaml:"rpo"`
+}
+
+// MaxTarget caps targets at a year; anything longer is almost certainly a typo.
+const MaxTarget = 366 * 24 * time.Hour
+
+// ParseTarget parses a target duration. The empty string means no target and returns 0.
+func ParseTarget(s string) (time.Duration, error) {
+	if s == "" {
+		return 0, nil
+	}
+	if hasControl(s) || len(s) > 32 {
+		return 0, fmt.Errorf("%q is not a duration", s)
+	}
+	var d time.Duration
+	if days, ok := strings.CutSuffix(s, "d"); ok {
+		n, err := strconv.Atoi(days)
+		if err != nil || n <= 0 || n > 366 {
+			return 0, fmt.Errorf("%q: days must be a whole number from 1 to 366", s)
+		}
+		d = time.Duration(n) * 24 * time.Hour
+	} else {
+		var err error
+		if d, err = time.ParseDuration(s); err != nil {
+			return 0, fmt.Errorf("%q is not a duration such as 30m, 4h or 7d", s)
+		}
+	}
+	if d <= 0 {
+		return 0, fmt.Errorf("%q must be greater than zero", s)
+	}
+	if d > MaxTarget {
+		return 0, fmt.Errorf("%q is longer than a year", s)
+	}
+	return d, nil
+}
+
+// RTODuration returns the restore time target, or 0 when none is set. Validate has already checked it.
+func (t Targets) RTODuration() time.Duration { d, _ := ParseTarget(t.RTO); return d }
+
+// RPODuration returns the backup age target, or 0 when none is set.
+func (t Targets) RPODuration() time.Duration { d, _ := ParseTarget(t.RPO); return d }
 
 var (
 	nameRE    = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
@@ -208,6 +258,12 @@ func (bp *Blueprint) Validate() error {
 		if err := validateCron(bp.Drill.Schedule); err != nil {
 			add("drill.schedule: %v", err)
 		}
+	}
+	if _, err := ParseTarget(bp.Targets.RTO); err != nil {
+		add("targets.rto: %v", err)
+	}
+	if _, err := ParseTarget(bp.Targets.RPO); err != nil {
+		add("targets.rpo: %v", err)
 	}
 	return errors.Join(errs...)
 }

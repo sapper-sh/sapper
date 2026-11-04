@@ -33,4 +33,10 @@ backup:
 drill:
   # cron expression for scheduled breach drills
   schedule: "30 3 * * 0"
+
+# Optional recovery objectives. Each drill reports whether it met them.
+# rto: longest acceptable time to restore and verify; rpo: oldest acceptable backup.
+targets:
+  rto: 30m
+  rpo: 8d
 `

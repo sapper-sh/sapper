@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestExampleIsValid(t *testing.T) {
@@ -117,5 +118,31 @@ func rep(old, new string) func(string) string {
 			panic("fixture missing " + old)
 		}
 		return strings.Replace(s, old, new, 1)
+	}
+}
+
+func TestTargets(t *testing.T) {
+	good := map[string]time.Duration{"": 0, "90s": 90 * time.Second, "15m": 15 * time.Minute, "24h": 24 * time.Hour, "7d": 7 * 24 * time.Hour}
+	for in, want := range good {
+		if got, err := ParseTarget(in); err != nil || got != want {
+			t.Errorf("ParseTarget(%q) = %v, %v; want %v", in, got, err, want)
+		}
+	}
+	for _, in := range []string{"0s", "-5m", "soon", "1.5d", "0d", "400d", "9000h", "15m\n", "d"} {
+		if _, err := ParseTarget(in); err == nil {
+			t.Errorf("ParseTarget(%q) accepted", in)
+		}
+	}
+	bp, err := Parse([]byte(Example))
+	if err != nil {
+		t.Fatal(err)
+	}
+	bp.Targets = Targets{RTO: "never", RPO: "-1h"}
+	err = bp.Validate()
+	if err == nil || !strings.Contains(err.Error(), "targets.rto") || !strings.Contains(err.Error(), "targets.rpo") {
+		t.Fatalf("Validate = %v", err)
+	}
+	if _, err := Parse([]byte(Example + "  rtx: 5m\n")); err == nil {
+		t.Fatal("unknown key under targets accepted")
 	}
 }
