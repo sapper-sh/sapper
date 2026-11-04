@@ -82,6 +82,9 @@ func Backup(ctx context.Context, bp *blueprint.Blueprint, r Restic) (BackupRecor
 	if !manifest.Equal(before, after) {
 		return BackupRecord{}, fmt.Errorf("volumes changed during backup of snapshot %s; stop the apps (docker compose stop) and run backup again", short(id))
 	}
+	if !validID(id) {
+		return BackupRecord{}, fmt.Errorf("restic returned an invalid snapshot id %q", id)
+	}
 	mp, err := statePath(bp, "manifests", id+".json")
 	if err != nil {
 		return BackupRecord{}, err
@@ -135,6 +138,9 @@ func Breach(ctx context.Context, bp *blueprint.Blueprint, r Restic, opt DrillOpt
 		return rep, err
 	}
 	rep.Snapshot, rep.SnapshotAt = snap.ID, snap.Time
+	if !validID(snap.ID) {
+		return rep, fmt.Errorf("restic returned an invalid snapshot id %q", snap.ID)
+	}
 	mp, err := statePath(bp, "manifests", snap.ID+".json")
 	if err != nil {
 		return rep, err
@@ -257,6 +263,20 @@ func readJSON(path string, v any) error {
 		return err
 	}
 	return json.Unmarshal(data, v)
+}
+
+// validID reports whether id is a restic snapshot ID (lowercase hex). IDs become file names
+// in the state directory, so anything else could escape it.
+func validID(id string) bool {
+	if len(id) < 8 || len(id) > 64 {
+		return false
+	}
+	for _, c := range id {
+		if !('0' <= c && c <= '9' || 'a' <= c && c <= 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 func short(id string) string {
