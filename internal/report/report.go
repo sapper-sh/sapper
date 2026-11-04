@@ -65,6 +65,11 @@ type Report struct {
 	Recovery  Recovery  `json:"recovery"`
 	NextSteps []string  `json:"next_steps"`
 	Error     string    `json:"error,omitempty"`
+	// Warnings are things a person should know that do not change the verdict on their own,
+	// such as a snapshot stamped in the future or a manifest read from the repository copy.
+	Warnings []string `json:"warnings,omitempty"`
+	// Older holds the results for sampled older snapshots (breach --sample).
+	Older []OlderResult `json:"older,omitempty"`
 
 	Prev      string     `json:"prev"`
 	Hash      string     `json:"hash"`
@@ -131,6 +136,16 @@ type Recovery struct {
 	RPO Objective `json:"rpo"`
 }
 
+// OlderResult is the outcome of drilling one older snapshot.
+type OlderResult struct {
+	ID       string    `json:"id"`
+	Time     time.Time `json:"time,omitzero"`
+	Verdict  string    `json:"verdict"`
+	Checked  int       `json:"checked"`
+	Problems int       `json:"problems"`
+	Error    string    `json:"error,omitempty"`
+}
+
 // Signature is an ed25519 signature over the report hash.
 type Signature struct {
 	Alg       string `json:"alg"`
@@ -160,6 +175,8 @@ type Input struct {
 	Err        error  // why the drill stopped early, if it did
 	ErrPhase   string // phase that failed
 	NoSnapshot bool   // the repository has no sapper snapshot yet
+	Warnings   []string
+	Older      []OlderResult
 }
 
 // Build assembles a report from what a drill measured.
@@ -185,6 +202,11 @@ func Build(in Input) *Report {
 	if r.Phases == nil {
 		r.Phases = []Phase{}
 	}
+	r.Warnings = capList(in.Warnings, MaxFindings)
+	if len(r.Warnings) == 0 {
+		r.Warnings = nil
+	}
+	r.Older = append([]OlderResult(nil), in.Older...)
 	if t, err := time.Parse(time.RFC3339Nano, in.SnapshotAt); err == nil {
 		r.Snapshot.Time = t.UTC()
 	}
@@ -335,8 +357,8 @@ func shortHex(s string, n int) string {
 
 // KindOrder is the order findings are grouped in, most serious first.
 var KindOrder = []string{
-	manifest.ProblemUnsafe, manifest.ProblemContent, manifest.ProblemSize, manifest.ProblemMissing,
-	manifest.ProblemUnexpected, manifest.ProblemType, manifest.ProblemSymlink, manifest.ProblemMode, "other",
+	manifest.ProblemUnsafe, manifest.ProblemManifest, manifest.ProblemContent, manifest.ProblemSize, manifest.ProblemMissing,
+	manifest.ProblemUnexpected, manifest.ProblemType, manifest.ProblemSymlink, manifest.ProblemMode, manifest.ProblemOlder, "other",
 }
 
 func kindRank(p manifest.Problem) int {

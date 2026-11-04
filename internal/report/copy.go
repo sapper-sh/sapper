@@ -37,6 +37,31 @@ func headline(r *Report, in Input) (string, string) {
 			why = fmt.Sprintf("%s found across %s (%s). First: %s, %s.",
 				count(e.FindingsTotal, "problem", "problems"), count(e.Entries, "entry", "entries"), kindSummary(r), Clean(first.Path), Clean(first.Reason))
 		}
+		special := e.ByKind[manifest.ProblemOlder] + e.ByKind[manifest.ProblemManifest]
+		var entryFinding *manifest.Problem
+		for i := range e.Findings {
+			if k := e.Findings[i].Kind; k != manifest.ProblemOlder && k != manifest.ProblemManifest {
+				entryFinding = &e.Findings[i]
+				break
+			}
+		}
+		rest := ""
+		if n := e.FindingsTotal - special; n > 0 && entryFinding != nil {
+			rest = fmt.Sprintf(" %s of %s %s from the manifest. First: %s, %s.", Num(n), count(e.Entries, "entry", "entries"),
+				map[bool]string{true: "differs", false: "differ"}[n == 1], Clean(entryFinding.Path), Clean(entryFinding.Reason))
+		}
+		switch {
+		case e.ByKind[manifest.ProblemManifest] > 0:
+			return "The checksum manifest on this machine was changed after the backup.",
+				fmt.Sprintf("It differs from the copy stored in the repository when snapshot %s was taken.%s", snap, rest)
+		case special == e.FindingsTotal:
+			n := e.ByKind[manifest.ProblemOlder]
+			return "The latest backup restores correctly, but an older snapshot does not.",
+				fmt.Sprintf("Snapshot %s matched all %s. %s of the sampled older snapshots %s. First: %s, %s.", snap, count(e.Entries, "entry", "entries"),
+					Num(n), map[bool]string{true: "fails", false: "fail"}[n == 1], Clean(first.Path), Clean(first.Actual))
+		case special > 0:
+			why = strings.TrimSpace(rest) + fmt.Sprintf(" %s also failed.", count(e.ByKind[manifest.ProblemOlder], "older snapshot", "older snapshots"))
+		}
 		return "The latest backup does not match the data it was taken from.", why
 	}
 	switch {
@@ -79,6 +104,10 @@ func KindLabel(k string) string {
 		return "wrong permissions"
 	case manifest.ProblemUnsafe:
 		return "unsafe path"
+	case manifest.ProblemManifest:
+		return "manifest disagrees with repository copy"
+	case manifest.ProblemOlder:
+		return "older snapshot failed"
 	}
 	return k
 }
@@ -122,6 +151,10 @@ func nextSteps(r *Report, in Input) []string {
 			s = append(s, "Inspect the unexpected entries with `sapper breach --keep`. A snapshot should not gain files after it is taken.")
 		case manifest.ProblemType, manifest.ProblemSymlink, manifest.ProblemMode:
 			s = append(s, "Check that the repository's storage keeps permissions and symlinks (some network shares do not), then back up again.")
+		case manifest.ProblemManifest:
+			s = append(s, "The manifest in the state directory and the copy stored in the repository at backup time disagree. One of them was edited. Find out who can write the state directory before trusting either; a signed copy (`sapper backup --sign-key`) settles which one is genuine.")
+		case manifest.ProblemOlder:
+			s = append(s, fmt.Sprintf("An older snapshot did not restore cleanly. Run `restic -r %s check --read-data` and keep that snapshot until you know why; the latest one passing does not mean the repository is healthy.", repo))
 		case manifest.ProblemUnsafe:
 			s = append(s, "The restore held a path that leads outside the restore directory or through a symlink. sapper did not follow it. Treat the repository as untrusted until you know who wrote to it.")
 		default:

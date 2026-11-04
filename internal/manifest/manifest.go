@@ -113,14 +113,16 @@ func Equal(a, b *Manifest) bool {
 
 // Problem kinds. Reports group findings by kind and suggest a next step for each.
 const (
-	ProblemMissing    = "missing"     // in the manifest, absent from the restore
-	ProblemUnexpected = "unexpected"  // in the restore, absent from the manifest
-	ProblemContent    = "content"     // same size, different sha256
-	ProblemSize       = "size"        // different size
-	ProblemType       = "type"        // file became a directory, and so on
-	ProblemSymlink    = "symlink"     // symlink points somewhere else
-	ProblemMode       = "mode"        // permission bits differ
-	ProblemUnsafe     = "unsafe-path" // manifest path escapes, or a restored parent is a symlink
+	ProblemMissing    = "missing"           // in the manifest, absent from the restore
+	ProblemUnexpected = "unexpected"        // in the restore, absent from the manifest
+	ProblemContent    = "content"           // same size, different sha256
+	ProblemSize       = "size"              // different size
+	ProblemType       = "type"              // file became a directory, and so on
+	ProblemSymlink    = "symlink"           // symlink points somewhere else
+	ProblemMode       = "mode"              // permission bits differ
+	ProblemUnsafe     = "unsafe-path"       // manifest path escapes, or a restored parent is a symlink
+	ProblemManifest   = "manifest-mismatch" // the local manifest and the copy in the repository disagree
+	ProblemOlder      = "older-snapshot"    // a sampled older snapshot failed to restore or verify
 )
 
 // Problem is one verification failure. Expected and Actual hold the compared values
@@ -309,12 +311,28 @@ func Load(path string) (*Manifest, error) {
 	if err != nil {
 		return nil, err
 	}
-	var m Manifest
-	if err := json.Unmarshal(data, &m); err != nil {
+	m, err := Parse(data)
+	if err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
+	return m, nil
+}
+
+// Parse decodes a manifest written by Save or json.Marshal.
+func Parse(data []byte) (*Manifest, error) {
+	var m Manifest
+	if err := json.Unmarshal(data, &m); err != nil {
+		return nil, err
+	}
 	if m.Entries == nil {
-		return nil, fmt.Errorf("%s: no entries", path)
+		return nil, errors.New("no entries")
 	}
 	return &m, nil
+}
+
+// Sum returns the hex sha256 of the manifest's canonical JSON encoding (map keys sorted).
+func (m *Manifest) Sum() string {
+	data, _ := json.Marshal(m)
+	h := sha256.Sum256(data)
+	return hex.EncodeToString(h[:])
 }

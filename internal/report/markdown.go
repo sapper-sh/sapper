@@ -61,6 +61,19 @@ func Markdown(r *Report) string {
 		}
 	}
 
+	if len(r.Older) > 0 {
+		p("\n## Older snapshots\n\n| Snapshot | Verdict | Checked | Problems | Error |\n|---|---|---|---|---|\n")
+		for _, o := range r.Older {
+			p("| %s | %s | %d | %d | %s |\n", code(shortHex(o.ID, 8)), mdText(o.Verdict), o.Checked, o.Problems, code(strings.ReplaceAll(o.Error, "|", "/")))
+		}
+	}
+	if len(r.Warnings) > 0 {
+		p("\n## Warnings\n\n")
+		for _, wn := range r.Warnings {
+			p("- %s\n", mdText(wn))
+		}
+	}
+
 	p("\n## Isolation\n\n")
 	p("- Restore directory: %s.\n", yesNo(r.Isolation.RestoreOutsideLive, "checked to be outside live data, the repository and sapper state", "not confirmed; nothing was restored"))
 	switch {

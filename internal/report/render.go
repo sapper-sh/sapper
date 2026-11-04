@@ -115,6 +115,31 @@ func Terminal(r *Report, v View) string {
 			s.kv("Merkle root", ShortHash(e.MerkleRoot)+" over the manifest")
 		}
 	}
+	if len(r.Older) > 0 {
+		s.head("Older snapshots")
+		for _, o := range r.Older {
+			line := fmt.Sprintf("  %s  %-10s", shortHex(o.ID, 8), o.Verdict)
+			switch {
+			case o.Error != "":
+				line += " " + o.Error
+			case o.Verdict != NoVerdict:
+				line += fmt.Sprintf(" %s checked, %s", Num(o.Checked), count(o.Problems, "problem", "problems"))
+			}
+			s.line(Fit(line, w))
+		}
+	}
+	if len(r.Warnings) > 0 {
+		s.head("Warnings")
+		for _, wn := range r.Warnings {
+			for j, l := range wrap(wn, w-4) {
+				if j == 0 {
+					s.line("  - " + l)
+				} else {
+					s.line("    " + l)
+				}
+			}
+		}
+	}
 	s.head("Isolation")
 	s.kv("Restore dir", yesNo(r.Isolation.RestoreOutsideLive, "outside live data, the repository and sapper state", "not confirmed; nothing was restored"))
 	switch {
@@ -218,6 +243,11 @@ func (r *Report) forDisplay() *Report {
 	c.Fortress, c.Verdict, c.Headline, c.Why, c.Error, c.Repo = Clean(c.Fortress), Clean(c.Verdict), Clean(c.Headline), Clean(c.Why), Clean(c.Error), Clean(c.Repo)
 	c.Snapshot.ID, c.Hash, c.Prev = Clean(c.Snapshot.ID), Clean(c.Hash), Clean(c.Prev)
 	c.NextSteps = cleanAll(c.NextSteps)
+	c.Warnings = cleanAll(c.Warnings)
+	c.Older = append([]OlderResult(nil), c.Older...)
+	for i := range c.Older {
+		c.Older[i].ID, c.Older[i].Verdict, c.Older[i].Error = Clean(c.Older[i].ID), Clean(c.Older[i].Verdict), Clean(c.Older[i].Error)
+	}
 	c.Isolation.LiveChanged = cleanAll(c.Isolation.LiveChanged)
 	c.Isolation.KeptCopy = Clean(c.Isolation.KeptCopy)
 	c.Volumes = append([]Volume(nil), c.Volumes...)
