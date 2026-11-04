@@ -74,11 +74,13 @@ func (a *app) statusCmd() *cobra.Command {
 }
 
 // banner prints the boot art sized to the terminal, animated only on an interactive colour terminal.
-func (a *app) banner(noAnim bool) {
+func (a *app) banner(noAnim bool) { a.bannerSized(art.Compact, noAnim) }
+
+func (a *app) bannerSized(max art.Size, noAnim bool) {
 	if a.plain || a.quiet {
 		return
 	}
-	lines := art.Lines(art.Fit(a.style.Width, art.Compact))
+	lines := art.Lines(art.Fit(a.style.Width, max))
 	animate := a.style.Color && a.style.TTY && !noAnim && os.Getenv("SAPPER_NO_ANIM") == ""
 	if !animate {
 		fmt.Fprint(a.stdout, art.Render(lines, a.style.Color))

@@ -74,6 +74,7 @@ func TestCommands(t *testing.T) {
 		{"unknown flag", []string{"status", "--bogus"}, "", ExitUsage, "", "unknown flag"},
 		{"status plain", []string{"status", "-f", bp, "--plain"}, "", 0, "drill      never", ""},
 		{"status json", []string{"status", "-f", bp, "--json"}, "", 0, `"fortress": "my-fortress"`, ""},
+		{"root shows art and help", []string{}, "", 0, "S·A·P·P·E·R", ""},
 		{"completion bash", []string{"completion", "bash"}, "", 0, "bash completion", ""},
 	}
 	for _, tc := range tests {

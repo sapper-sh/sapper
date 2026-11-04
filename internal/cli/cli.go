@@ -89,6 +89,12 @@ captured at backup time. Drills never write to live data.`,
 	pf.BoolVar(&a.noColor, "no-color", false, "disable colour (NO_COLOR is also honoured)")
 	pf.BoolVar(&a.plain, "plain", false, "no colour, no art, no animation")
 
+	root.RunE = func(cmd *cobra.Command, _ []string) error {
+		noAnim, _ := cmd.Flags().GetBool("no-anim")
+		a.bannerSized(art.Full, noAnim)
+		return cmd.Help()
+	}
+	root.Flags().Bool("no-anim", false, "skip the boot animation")
 	root.AddCommand(a.initCmd(), a.validateCmd(), a.buildCmd(), a.backupCmd(), a.breachCmd(), a.statusCmd())
 	return root
 }
@@ -414,7 +420,7 @@ Exit codes: 0 survived, 3 breached, 4 no verdict (no snapshot, manifest or resto
 				fmt.Fprint(a.stdout, a.verdict(rep).Render(a.style.Color))
 			}
 			if !rep.Survived() {
-				return withCode(ExitBreached, fmt.Errorf("%d problems in snapshot %s", len(rep.Problems), short(rep.Snapshot)))
+				return withCode(ExitBreached, fmt.Errorf("%s in snapshot %s", plural(len(rep.Problems), "problem"), short(rep.Snapshot)))
 			}
 			return nil
 		},
@@ -443,6 +449,13 @@ func (a *app) verdict(rep ops.DrillReport) art.Verdict {
 		lines = append(lines, fmt.Sprintf("FAIL  %s: %s", p.Path, p.Reason))
 	}
 	return art.Verdict{Survived: rep.Survived(), Title: "BREACH DRILL // " + rep.Fortress, Lines: lines}
+}
+
+func plural(n int, word string) string {
+	if n == 1 {
+		return "1 " + word
+	}
+	return fmt.Sprintf("%d %ss", n, word)
 }
 
 func humanBytes(n int64) string {
