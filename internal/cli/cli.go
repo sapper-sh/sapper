@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	goruntime "runtime"
 	"strings"
 	"time"
 
@@ -292,6 +293,9 @@ func (p *passwordFlags) add(c *cobra.Command) {
 func (p *passwordFlags) resolve(a *app, bp *blueprint.Blueprint) (string, error) {
 	switch {
 	case p.file != "":
+		if st, err := os.Stat(p.file); err == nil && goruntime.GOOS != "windows" && st.Mode().Perm()&0o077 != 0 {
+			fmt.Fprintf(a.stderr, "sapper: warning: password file %s is readable by other users (mode %v); run chmod 600 on it\n", p.file, st.Mode().Perm())
+		}
 		data, err := os.ReadFile(p.file)
 		if err != nil {
 			return "", withCode(ExitUsage, fmt.Errorf("password file: %w", err))

@@ -2,6 +2,8 @@ package cli
 
 import (
 	"os"
+	"path/filepath"
+	goruntime "runtime"
 	"strings"
 	"testing"
 )
@@ -27,5 +29,26 @@ func TestBackupDryRunRedactsRepoPassword(t *testing.T) {
 		if !strings.Contains(r.stdout, "alice:***@backup.example") {
 			t.Errorf("%v: redacted repository missing:\n%s", args, r.stdout)
 		}
+	}
+}
+
+func TestPasswordFileWarnsWhenWorldReadable(t *testing.T) {
+	if goruntime.GOOS == "windows" {
+		t.Skip("POSIX modes")
+	}
+	bp := fortress(t)
+	pf := filepath.Join(t.TempDir(), "pass")
+	if err := os.WriteFile(pf, []byte("pw\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(pf, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r := run(t, "", "backup", "-f", bp, "--password-file", pf)
+	if !strings.Contains(r.stderr, "readable by other users") {
+		t.Errorf("no permission warning: %+v", r)
+	}
+	if strings.Contains(r.stdout+r.stderr, "pw\n") {
+		t.Errorf("password echoed")
 	}
 }
