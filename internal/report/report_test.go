@@ -376,7 +376,7 @@ func TestTerminalLayout(t *testing.T) {
 	if verdict < 0 || verdict > strings.Index(out, "What was tested") || strings.Index(out, "What was tested") > strings.Index(out, "Evidence") {
 		t.Fatalf("verdict must come first:\n%s", out)
 	}
-	for _, want := range []string{"3f9a1c2e, taken 2026-11-04 03:30:00 UTC", snapID, "changed content: expected 111111111111…", "                 actual   222222222222…", "follows #6", "Restore (RTO) 2.2s restore and verify; no target set"} {
+	for _, want := range []string{"3f9a1c2e, taken 2026-11-04 03:30:00 UTC", snapID, "changed content: expected 111111111111…", "                 actual   222222222222…", "follows #6", "Restore (RTO) 2.2s to restore and verify; no target set"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q:\n%s", want, out)
 		}
@@ -474,5 +474,18 @@ func TestHashIsStableAcrossRoundTrip(t *testing.T) {
 	}
 	if h, _ := back.ComputeHash(); h != r.Hash {
 		t.Fatal("hash changes after a JSON round trip")
+	}
+}
+
+func TestFindingsAreOrderedBySeverity(t *testing.T) {
+	in := breachedInput()
+	p := in.Result.Problems
+	in.Result.Problems = []manifest.Problem{p[2], p[1], p[0]}
+	r := Build(in)
+	if got := r.Evidence.Findings; got[0].Kind != manifest.ProblemContent || got[1].Kind != manifest.ProblemMissing || got[2].Kind != manifest.ProblemMode {
+		t.Fatalf("order %+v", got)
+	}
+	if !strings.Contains(r.Why, "First: /srv/data/vaultwarden/db.sqlite3") {
+		t.Errorf("why %q", r.Why)
 	}
 }

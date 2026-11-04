@@ -135,8 +135,8 @@ func Terminal(r *Report, v View) string {
 		}
 	}
 	s.head("Recovery")
-	s.kv("Restore (RTO)", objective(r.Recovery.RTO, "restore and verify"))
-	s.kv("Age (RPO)", objective(r.Recovery.RPO, "backup age"))
+	s.kv("Restore (RTO)", objective(r.Recovery.RTO, "to restore and verify"))
+	s.kv("Age (RPO)", objective(r.Recovery.RPO, "since the backup"))
 
 	if r.Error != "" {
 		s.head("Error")
@@ -170,7 +170,12 @@ func Terminal(r *Report, v View) string {
 		s.kv("Signed", "no")
 	}
 	if v.Path != "" {
-		s.kv("Saved", Fit(v.Path, w-labelWidth))
+		if utf8.RuneCountInString(v.Path) <= w-labelWidth {
+			s.kv("Saved", v.Path)
+		} else {
+			s.line("  Saved")
+			s.line("    " + Fit(v.Path, w-4))
+		}
 	}
 	return b.String()
 }

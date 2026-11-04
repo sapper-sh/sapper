@@ -200,8 +200,10 @@ func Build(in Input) *Report {
 			for _, p := range res.Problems {
 				e.ByKind[kindOf(p)]++
 			}
-			n := min(len(res.Problems), MaxFindings)
-			e.Findings = append([]manifest.Problem(nil), res.Problems[:n]...)
+			// Most serious first, so the headline and the first lines name what matters.
+			sorted := append([]manifest.Problem(nil), res.Problems...)
+			sort.SliceStable(sorted, func(i, j int) bool { return kindRank(sorted[i]) < kindRank(sorted[j]) })
+			e.Findings = sorted[:min(len(sorted), MaxFindings)]
 		}
 	}
 	r.Recovery.RTO = Objective{MeasuredMS: restoreTime(in.Phases).Milliseconds(), Known: in.Err == nil}
@@ -335,6 +337,15 @@ func shortHex(s string, n int) string {
 var KindOrder = []string{
 	manifest.ProblemUnsafe, manifest.ProblemContent, manifest.ProblemSize, manifest.ProblemMissing,
 	manifest.ProblemUnexpected, manifest.ProblemType, manifest.ProblemSymlink, manifest.ProblemMode, "other",
+}
+
+func kindRank(p manifest.Problem) int {
+	for i, k := range KindOrder {
+		if k == kindOf(p) {
+			return i
+		}
+	}
+	return len(KindOrder)
 }
 
 // kindsPresent returns the finding kinds in r in KindOrder.
