@@ -20,7 +20,7 @@ type fakeRestic struct {
 	onBackup func()
 }
 
-func (f *fakeRestic) EnsureRepo(context.Context) (bool, error) { return false, nil }
+func (f *fakeRestic) EnsureRepo(context.Context) (bool, error)  { return false, nil }
 func (f *fakeRestic) Forget(context.Context, string, int) error { return nil }
 
 func (f *fakeRestic) Backup(_ context.Context, ps, _ []string) (string, error) {
