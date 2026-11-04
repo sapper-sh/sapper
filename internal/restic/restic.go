@@ -25,6 +25,9 @@ type Client struct {
 	Bin        string
 	Repository string
 	Password   string
+	// DropEnv names extra variables (such as the blueprint's password_env) that are not
+	// passed to restic, so the password reaches the child only once, as RESTIC_PASSWORD.
+	DropEnv []string
 	// Log, when set, receives every command line before it runs. The password is never included.
 	Log io.Writer
 }
@@ -46,18 +49,24 @@ func (c *Client) cmd(ctx context.Context, args ...string) *exec.Cmd {
 		fmt.Fprintf(c.Log, "$ restic %s\n", strings.Join(args, " "))
 	}
 	cmd := exec.CommandContext(ctx, c.Bin, args...)
-	cmd.Env = append(filteredEnv(), "RESTIC_REPOSITORY="+c.Repository, "RESTIC_PASSWORD="+c.Password)
+	cmd.Env = append(filteredEnv(c.DropEnv...), "RESTIC_REPOSITORY="+c.Repository, "RESTIC_PASSWORD="+c.Password)
 	return cmd
 }
 
 // filteredEnv drops inherited restic variables so only the blueprint decides the target.
-func filteredEnv() []string {
+func filteredEnv(drop ...string) []string {
 	var out []string
+outer:
 	for _, kv := range os.Environ() {
 		k, _, _ := strings.Cut(kv, "=")
 		switch k {
 		case "RESTIC_REPOSITORY", "RESTIC_REPOSITORY_FILE", "RESTIC_PASSWORD", "RESTIC_PASSWORD_FILE", "RESTIC_PASSWORD_COMMAND":
 			continue
+		}
+		for _, d := range drop {
+			if k == d {
+				continue outer
+			}
 		}
 		out = append(out, kv)
 	}
@@ -98,6 +107,8 @@ func (c *Client) Backup(ctx context.Context, paths, tags []string) (string, erro
 	for _, t := range tags {
 		args = append(args, "--tag", t)
 	}
+	// "--" ends option parsing so a path can never be read as a restic flag.
+	args = append(args, "--")
 	args = append(args, paths...)
 	out, err := c.run(ctx, args...)
 	if err != nil {

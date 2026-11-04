@@ -326,6 +326,7 @@ func (a *app) client(p *passwordFlags, bp *blueprint.Blueprint) (*restic.Client,
 		return nil, err
 	}
 	c.Log = a.commandLog()
+	c.DropEnv = []string{bp.Backup.PasswordEnv}
 	return c, nil
 }
 
