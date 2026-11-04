@@ -111,15 +111,35 @@ func Equal(a, b *Manifest) bool {
 	return true
 }
 
-// Problem is one verification failure.
+// Problem kinds. Reports group findings by kind and suggest a next step for each.
+const (
+	ProblemMissing    = "missing"     // in the manifest, absent from the restore
+	ProblemUnexpected = "unexpected"  // in the restore, absent from the manifest
+	ProblemContent    = "content"     // same size, different sha256
+	ProblemSize       = "size"        // different size
+	ProblemType       = "type"        // file became a directory, and so on
+	ProblemSymlink    = "symlink"     // symlink points somewhere else
+	ProblemMode       = "mode"        // permission bits differ
+	ProblemUnsafe     = "unsafe-path" // manifest path escapes, or a restored parent is a symlink
+)
+
+// Problem is one verification failure. Expected and Actual hold the compared values
+// (hashes, sizes, modes, link targets) when there are any.
 type Problem struct {
-	Path   string `json:"path"`
-	Reason string `json:"reason"`
+	Path     string `json:"path"`
+	Reason   string `json:"reason"`
+	Kind     string `json:"kind,omitempty"`
+	Expected string `json:"expected,omitempty"`
+	Actual   string `json:"actual,omitempty"`
 }
 
 // Result of verifying a restored tree.
 type Result struct {
 	Checked  int       `json:"checked"`
+	Matched  int       `json:"matched"`
+	Files    int       `json:"files"`
+	Dirs     int       `json:"dirs"`
+	Symlinks int       `json:"symlinks"`
 	Bytes    int64     `json:"bytes"`
 	Problems []Problem `json:"problems"`
 }
@@ -139,32 +159,42 @@ func Verify(m *Manifest, base string) (Result, error) {
 	for _, p := range paths {
 		want := m.Entries[p]
 		r.Checked++
+		switch want.Kind {
+		case KindFile:
+			r.Files++
+		case KindDir:
+			r.Dirs++
+		case KindSymlink:
+			r.Symlinks++
+		}
 		if !underRoot(m.Roots, p) {
-			r.Problems = append(r.Problems, Problem{p, "manifest path outside backup roots"})
+			r.Problems = append(r.Problems, Problem{Path: p, Kind: ProblemUnsafe, Reason: "manifest path outside backup roots"})
 			continue
 		}
 		rp := RestoredPath(base, p)
 		if !inside(base, rp) {
-			r.Problems = append(r.Problems, Problem{p, "manifest path escapes restore directory"})
+			r.Problems = append(r.Problems, Problem{Path: p, Kind: ProblemUnsafe, Reason: "manifest path escapes restore directory"})
 			continue
 		}
 		if link := symlinkAncestor(base, rp); link != "" {
 			// Never follow a restored symlink: it could point anywhere on this host.
-			r.Problems = append(r.Problems, Problem{p, "parent is a symlink in restore: " + link})
+			r.Problems = append(r.Problems, Problem{Path: p, Kind: ProblemUnsafe, Reason: "parent is a symlink in restore: " + link})
 			continue
 		}
 		got, err := statEntry(rp)
 		switch {
 		case errors.Is(err, fs.ErrNotExist):
-			r.Problems = append(r.Problems, Problem{p, "missing"})
+			r.Problems = append(r.Problems, Problem{Path: p, Kind: ProblemMissing, Reason: "missing", Expected: want.Kind})
 			continue
 		case err != nil:
 			return r, err
 		}
-		if reason := compare(want, got); reason != "" {
-			r.Problems = append(r.Problems, Problem{p, reason})
+		if pr, bad := compare(want, got); bad {
+			pr.Path = p
+			r.Problems = append(r.Problems, pr)
 			continue
 		}
+		r.Matched++
 		r.Bytes += got.Size
 	}
 	expected := make(map[string]bool, len(m.Entries))
@@ -181,7 +211,7 @@ func Verify(m *Manifest, base string) (Result, error) {
 				return err
 			}
 			if !expected[rp] {
-				r.Problems = append(r.Problems, Problem{rp, "unexpected in restore"})
+				r.Problems = append(r.Problems, Problem{Path: rp, Kind: ProblemUnexpected, Reason: "unexpected in restore"})
 			}
 			return nil
 		})
@@ -227,20 +257,21 @@ func symlinkAncestor(base, p string) string {
 	return ""
 }
 
-func compare(want, got Entry) string {
+func compare(want, got Entry) (Problem, bool) {
 	switch {
 	case want.Kind != got.Kind:
-		return fmt.Sprintf("type changed: %s -> %s", want.Kind, got.Kind)
+		return Problem{Kind: ProblemType, Reason: fmt.Sprintf("type changed: %s -> %s", want.Kind, got.Kind), Expected: want.Kind, Actual: got.Kind}, true
 	case want.Kind == KindFile && want.Size != got.Size:
-		return fmt.Sprintf("size %d, expected %d", got.Size, want.Size)
+		return Problem{Kind: ProblemSize, Reason: fmt.Sprintf("size %d, expected %d", got.Size, want.Size),
+			Expected: fmt.Sprintf("%d bytes, sha256 %s", want.Size, want.SHA256), Actual: fmt.Sprintf("%d bytes, sha256 %s", got.Size, got.SHA256)}, true
 	case want.SHA256 != got.SHA256:
-		return "checksum mismatch"
+		return Problem{Kind: ProblemContent, Reason: "checksum mismatch", Expected: want.SHA256, Actual: got.SHA256}, true
 	case want.Target != got.Target:
-		return fmt.Sprintf("symlink target %q, expected %q", got.Target, want.Target)
+		return Problem{Kind: ProblemSymlink, Reason: fmt.Sprintf("symlink target %q, expected %q", got.Target, want.Target), Expected: want.Target, Actual: got.Target}, true
 	case runtime.GOOS != "windows" && want.Mode != got.Mode:
-		return fmt.Sprintf("mode %v, expected %v", got.Mode, want.Mode)
+		return Problem{Kind: ProblemMode, Reason: fmt.Sprintf("mode %v, expected %v", got.Mode, want.Mode), Expected: want.Mode.String(), Actual: got.Mode.String()}, true
 	}
-	return ""
+	return Problem{}, false
 }
 
 func statEntry(p string) (Entry, error) {

@@ -148,3 +148,90 @@ func must(t *testing.T, err error) {
 		t.Fatal(err)
 	}
 }
+
+func TestMerkleRootChangesWithAnyField(t *testing.T) {
+	base := &Manifest{Roots: []string{"/r"}, Entries: map[string]Entry{
+		"/r":   {Kind: KindDir, Mode: 0o755},
+		"/r/a": {Kind: KindFile, Size: 1, SHA256: "aa", Mode: 0o644},
+		"/r/b": {Kind: KindSymlink, Target: "a", Mode: 0o777},
+	}}
+	root := base.MerkleRoot()
+	if len(root) != 64 || root != base.MerkleRoot() {
+		t.Fatalf("root %q not stable", root)
+	}
+	mutations := []func(m *Manifest){
+		func(m *Manifest) { e := m.Entries["/r/a"]; e.SHA256 = "ab"; m.Entries["/r/a"] = e },
+		func(m *Manifest) { e := m.Entries["/r/a"]; e.Mode = 0o600; m.Entries["/r/a"] = e },
+		func(m *Manifest) { e := m.Entries["/r/b"]; e.Target = "c"; m.Entries["/r/b"] = e },
+		func(m *Manifest) { m.Entries["/r/c"] = Entry{Kind: KindDir} },
+		func(m *Manifest) { delete(m.Entries, "/r/b") },
+	}
+	for i, mut := range mutations {
+		m := &Manifest{Roots: base.Roots, Entries: map[string]Entry{}}
+		for k, v := range base.Entries {
+			m.Entries[k] = v
+		}
+		mut(m)
+		if m.MerkleRoot() == root {
+			t.Errorf("mutation %d did not change the root", i)
+		}
+	}
+}
+
+func TestVerifyReportsExpectedAndActual(t *testing.T) {
+	src := t.TempDir()
+	if err := os.WriteFile(filepath.Join(src, "f"), []byte("one"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m, err := Build([]string{src})
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := t.TempDir()
+	dst := RestoredPath(base, src)
+	if err := os.MkdirAll(dst, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dst, m.Entries[src].Mode); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dst, "f"), []byte("two"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := Verify(m, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Problems) != 1 {
+		t.Fatalf("problems = %+v", res.Problems)
+	}
+	p := res.Problems[0]
+	if p.Kind != ProblemContent || p.Expected != m.Entries[filepath.Join(src, "f")].SHA256 || len(p.Actual) != 64 || p.Expected == p.Actual {
+		t.Fatalf("problem = %+v", p)
+	}
+	if res.Checked != 2 || res.Matched != 1 || res.Files != 1 || res.Dirs != 1 {
+		t.Fatalf("counts = %+v", res)
+	}
+}
+
+func TestFingerprintDiff(t *testing.T) {
+	d := t.TempDir()
+	f := filepath.Join(d, "x")
+	if err := os.WriteFile(f, []byte("1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	a, err := Fingerprint([]string{d})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(f, []byte("22"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := Fingerprint([]string{d})
+	if diff := FingerprintDiff(a, b); len(diff) != 1 || diff[0] != f {
+		t.Fatalf("diff = %v", diff)
+	}
+	if diff := FingerprintDiff(b, b); len(diff) != 0 {
+		t.Fatalf("diff of identical = %v", diff)
+	}
+}
