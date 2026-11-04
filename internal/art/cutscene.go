@@ -71,7 +71,7 @@ const (
 	mGround
 	mWall
 	mDragon
-	mKnight
+	mWarden
 	mCloth
 	mEmit // emissive, colour stored in emit
 )
@@ -117,9 +117,27 @@ type frame struct {
 	emit  [pxH][SceneW]vec
 	light [pxH][SceneW]vec
 	camX  float64
+
+	// zoom for the close-up: a world point w is drawn at o + (w - p) * z
+	z, px, py, ox, oy float64
 }
 
+func (f *frame) tx(x, y float64) (float64, float64)  { return f.ox + (x-f.px)*f.z, f.oy + (y-f.py)*f.z }
+func (f *frame) inv(x, y float64) (float64, float64) { return f.px + (x-f.ox)/f.z, f.py + (y-f.oy)/f.z }
+
+// put sets the world pixel (x, y), as a z-by-z block when zoomed in.
 func (f *frame) put(x, y int, m mat, col vec) {
+	sx, sy := f.tx(float64(x), float64(y))
+	n := int(math.Ceil(f.z))
+	for dy := 0; dy < n; dy++ {
+		for dx := 0; dx < n; dx++ {
+			f.raw(int(sx)+dx, int(sy)+dy, m, col)
+		}
+	}
+}
+
+// raw sets a screen pixel, ignoring the zoom.
+func (f *frame) raw(x, y int, m mat, col vec) {
 	if x >= 0 && x < SceneW && y >= 0 && y < pxH {
 		f.mt[y][x] = m
 		if m == mEmit {
@@ -133,7 +151,11 @@ func (f *frame) put(x, y int, m mat, col vec) {
 }
 
 // poly fills a polygon given in world pixels; shade returns the pigment at a pixel.
-func (f *frame) poly(pts [][2]float64, m mat, shade func(x, y int) vec) {
+func (f *frame) poly(world [][2]float64, m mat, shade func(x, y int) vec) {
+	pts := make([][2]float64, len(world))
+	for i, p := range world {
+		pts[i][0], pts[i][1] = f.tx(p[0], p[1])
+	}
 	minX, maxX, minY, maxY := 1e9, -1e9, 1e9, -1e9
 	for _, p := range pts {
 		minX, maxX = math.Min(minX, p[0]), math.Max(maxX, p[0])
@@ -142,7 +164,8 @@ func (f *frame) poly(pts [][2]float64, m mat, shade func(x, y int) vec) {
 	for y := int(math.Max(0, math.Floor(minY))); y <= int(math.Min(pxH-1, maxY)); y++ {
 		for x := int(math.Max(0, math.Floor(minX))); x <= int(math.Min(SceneW-1, maxX)); x++ {
 			if inside(pts, float64(x)+.5, float64(y)+.5) {
-				f.put(x, y, m, shade(x, y))
+				wx, wy := f.inv(float64(x), float64(y))
+				f.raw(x, y, m, shade(int(wx), int(wy)))
 			}
 		}
 	}
@@ -160,11 +183,13 @@ func inside(pts [][2]float64, x, y float64) bool {
 }
 
 func (f *frame) disc(cx, cy, r float64, m mat, col vec) {
+	cx, cy = f.tx(cx, cy)
+	r *= f.z
 	for y := int(cy - r - 1); y <= int(cy+r+1); y++ {
 		for x := int(cx - r - 1); x <= int(cx+r+1); x++ {
 			dx, dy := float64(x)+.5-cx, float64(y)+.5-cy
 			if dx*dx+dy*dy <= r*r {
-				f.put(x, y, m, col)
+				f.raw(x, y, m, col)
 			}
 		}
 	}
@@ -264,10 +289,33 @@ func (c *Cutscene) shake(t float64) (int, int) {
 
 // ---------------------------------------------------------------- frame
 
+// Close-up for the clash: the warden is small beside his gate, so the camera pushes in
+// on him while the breath hits his shield, then pulls back out.
+const (
+	closeZoom = 2.0
+	knightK   = .36 // the warden's scale: about 7 px tall against an 11 px gate
+)
+
+func (c *Cutscene) camera(f *frame) {
+	k := smooth(tFire2-1.8, tFire2-1, f.t) * (1 - smooth(tFire2+fireLen+.2, tFire2+fireLen+1.2, f.t))
+	f.z = 1 + (closeZoom-1)*k
+	kx, ky := c.knightAt(f.t)
+	f.px, f.py = kx-f.camX+1, ky-3
+	f.ox, f.oy = f.px+(SceneW*.5-f.px)*k, f.py+(pxH*.7-f.py)*k
+}
+
+func (c *Cutscene) knightAt(t float64) (float64, float64) {
+	march := smooth(tKnight, tKnight+2.6, t)
+	return 26 + 20*march, groundY
+}
+
+func (c *Cutscene) wizardVisible(t float64) bool { return t >= .8 }
+
 // FrameCells renders frame i into cells.
 func (c *Cutscene) FrameCells(i int) *[CutH][SceneW]Cell {
 	t := float64(i) / FPS
 	f := &frame{t: t, camX: 7 * smooth(0, cutSecs, t)}
+	c.camera(f)
 	c.stepFire(i)
 	c.sky(f)
 	c.mountains(f)
@@ -278,6 +326,8 @@ func (c *Cutscene) FrameCells(i int) *[CutH][SceneW]Cell {
 		c.dragon(f, dx-f.camX, dy)
 	}
 	c.knight(f)
+	c.inhale(f)
+	c.frost(f)
 	c.endingScene(f)
 	c.snow(f)
 	c.lights(f, dx-f.camX, dy, ok)
@@ -296,7 +346,7 @@ func (c *Cutscene) sky(f *frame) {
 			n := c.fbm((float64(x)+f.camX*.15+f.t*1.2)*.07, float64(y)*.16)
 			cl := smooth(.45, .75, n) * (1 - float64(y)/groundY)
 			col := g.lerp(hex(42, 56, 76), cl*.85).add(hex(120, 170, 230).mul(fl * (.35 + cl)))
-			f.put(x, y, mSky, col)
+			f.raw(x, y, mSky, col)
 			f.emit[y][x] = col
 		}
 	}
@@ -330,7 +380,7 @@ func (c *Cutscene) mountains(f *frame) {
 			if d < .1 {
 				col = hex(44, 58, 78).mul(.8 + .4*c.noise(wx*.4, 9)) // snow on the ridges
 			}
-			f.put(x, y, mMount, col)
+			f.raw(x, y, mMount, col)
 		}
 	}
 }
@@ -339,7 +389,7 @@ func (c *Cutscene) ground(f *frame) {
 	for y := int(groundY); y < pxH; y++ {
 		for x := 0; x < SceneW; x++ {
 			n := c.noise((float64(x)+f.camX)*.3, float64(y)*.8)
-			f.put(x, y, mGround, hex(40, 54, 72).lerp(hex(24, 32, 46), float64(y-int(groundY))/6).mul(.85+.3*n))
+			f.raw(x, y, mGround, hex(40, 54, 72).lerp(hex(24, 32, 46), float64(y-int(groundY))/6).mul(.85+.3*n))
 		}
 	}
 }
@@ -448,6 +498,7 @@ func (c *Cutscene) dragonPos(t float64) (float64, float64, bool) {
 	x := 108 - 51*smooth(tStrike-.4, tStrike+3.4, t)
 	y := 15 + bob
 	x += 2 * math.Sin(t*.7)
+	x += 21 * smooth(tKnight+.8, tKnight+2.8, t) // wheels to face the warden
 	if t > tResolve {
 		switch c.Ending {
 		case EndSurvived:
@@ -595,9 +646,9 @@ func (c *Cutscene) mouth(t float64) (float64, float64) {
 type burst struct{ from, tx, ty, lift float64 }
 
 func (c *Cutscene) bursts() []burst {
-	b := []burst{{tFire1, 25, 16, 0}, {tFire2, 50, 29, 0}}
+	b := []burst{{tFire1, 25, 16, 0}, {tFire2, 47, 31, 0}}
 	if c.Ending == EndBreached {
-		b = append(b, burst{tResolve + .9, 23, 6, -.08}) // arcs over onto the keep's spire
+		b = append(b, burst{tResolve + .9, 34, 22, -.04}) // through the broken ward onto the keep
 	}
 	return b
 }
@@ -627,7 +678,11 @@ func (c *Cutscene) fireTick(i int) {
 		dx, dy := b.tx-cam-mx, b.ty-my
 		d := math.Hypot(dx, dy)
 		dx, dy = dx/d, dy/d
-		vx, vy = dx*2.1, dy*2.1-.15
+		sp := 2.1
+		if b.from == tFire2 {
+			sp = 3.2 // the breath at the ward is a hard, fast stream
+		}
+		vx, vy = dx*sp, dy*sp-.15
 		vy += b.lift * (t - b.from) * 25 // the breath droops and rises along an arc
 		k := 0
 		for s := 0.0; s < 3; s += .5 { // inject a short, hot, slightly fanned jet
@@ -641,13 +696,35 @@ func (c *Cutscene) fireTick(i int) {
 			}
 		}
 	}
+	wardOn := c.wardOn(t)
+	wp := c.wizardPose(t)
+	wcx, wcy := wp.x-cam, wp.y
+	gap := c.Ending == EndBreached && t > tResolve+.9
 	// carry heat along the wind with jitter (semi-Lagrangian), diffuse and cool
 	for y := 0; y < pxH; y++ {
 		for x := 0; x < SceneW; x++ {
 			j := hash(c.seed, i*7919+y*101+x)
-			sx := float64(x) - vx + (j-.5)*1.6
-			sy := float64(y) - vy + (hash(c.seed, i*31+y*7+x*13)-.5)*1.6
-			c.tmp[y][x] = c.sample(sx, sy) * (.86 + .06*j)
+			ux, uy := vx, vy
+			if wardOn > 0 { // the ward: no heat inside, and flow near it slides around it
+				dx, dy := float64(x)-wcx, (float64(y)-wcy)*1.15
+				d := math.Hypot(dx, dy)
+				R := wardR * wardOn
+				ang := math.Atan2(-dy, dx)
+				open := gap && ang > .55 && ang < 1.15
+				if d < R && float64(y) <= wcy && !open {
+					c.tmp[y][x] = 0
+					continue
+				}
+				if d < R+5 && !open {
+					nx, ny := dx/d, dy/d
+					if dot := ux*nx + uy*ny; dot < 0 {
+						ux, uy = ux-nx*dot*1.6, uy-ny*dot*1.6
+					}
+				}
+			}
+			sx := float64(x) - ux + (j-.5)*1.6
+			sy := float64(y) - uy + (hash(c.seed, i*31+y*7+x*13)-.5)*1.6
+			c.tmp[y][x] = c.sample(sx, sy) * (.885 + .06*j)
 		}
 	}
 	for y := 0; y < pxH; y++ {
@@ -697,71 +774,224 @@ func plasma(h float64) vec {
 
 // ---------------------------------------------------------------- knight
 
+// The warden: sapper itself, a tall hooded figure. His silhouette is one dominant
+// triangle (hood point to robe hem) with the staff as a strong vertical; the ice
+// crystal and his eyes are the brightest values on him, so they are the focal point.
+// He is drawn in his own units (21 tall at the hood tip) and scaled by knightK so the
+// gate is about 1.5 times his height.
+
+type pose struct {
+	x, y   float64 // feet, world pixels before zoom
+	staffA float64 // staff angle from vertical, positive leans toward the dragon
+	lift   float64 // hand height above rest, in his units
+	slam   float64 // 0..1, the staff driven into the snow
+	march  float64
+}
+
+const (
+	tSlam   = tFire2 - .45 // he answers the dragon's inhale
+	tThrust = tResolve + .3
+)
+
+func (c *Cutscene) wizardPose(t float64) pose {
+	x, y := c.knightAt(t)
+	p := pose{x: x, y: y, march: smooth(tKnight, tKnight+2.6, t)}
+	// raising the citadel: the staff lifts high while the walls rise, then pulses with
+	// each rune that ignites
+	p.lift = 5 * smooth(tRise-.6, tRise, t) * (1 - smooth(6, 7, t))
+	for k := 0; k < 4; k++ {
+		at := tRunes + float64(k)*.7
+		if d := t - at; d > -.15 && d < .35 {
+			p.lift = math.Max(p.lift, 2*math.Sin((d+.15)/.5*math.Pi))
+		}
+	}
+	// the slam: anticipation lift, a fast drop, a held hit
+	if d := t - (tSlam - .45); d > 0 && d < .45 {
+		p.lift = 4 * math.Sin(d/.45*math.Pi/2)
+	}
+	if d := t - tSlam; d >= 0 {
+		p.slam = smooth(0, .08, d) * (1 - smooth(tResolve, tResolve+.3, t))
+		p.lift = 4 * (1 - smooth(0, .08, d))
+	}
+	if c.Ending == EndSurvived { // the thrust that drives the dragon off
+		th := smooth(tThrust-.25, tThrust, t) * (1 - smooth(tThrust+1.4, tThrust+2.2, t))
+		p.staffA = .9 * th
+		p.lift = math.Max(p.lift, 3*th)
+	}
+	return p
+}
+
+// crystal returns the staff tip in world pixels before zoom.
+func (c *Cutscene) crystal(t, camX float64) (float64, float64) {
+	p := c.wizardPose(t)
+	k := knightK
+	hx, hy := 3.2, -11-p.lift+p.slam*2.5
+	return p.x - camX + (hx+12*math.Sin(p.staffA))*k, p.y + (hy-12*math.Cos(p.staffA))*k
+}
+
+func (c *Cutscene) wardOn(t float64) float64 {
+	return smooth(tSlam+.05, tSlam+.45, t) * (1 - smooth(tResolve+4.5, tResolve+5.5, t))
+}
+
+const wardR = 9.0
+
 func (c *Cutscene) knight(f *frame) {
 	t := f.t
-	if t < tKnight {
+	if !c.wizardVisible(t) {
 		return
 	}
-	march := smooth(tKnight, tKnight+2.4, t)
-	x := 23 + 24*march - f.camX
-	crouch := 0.0
-	if t > tFire2-.9 && t < tFire2-.2 { // anticipation: he drops before raising the shield
-		crouch = 1.5 * math.Sin((t-(tFire2-.9))/.7*math.Pi)
+	p := c.wizardPose(t)
+	k := knightK
+	x0, y0 := p.x-f.camX, p.y
+	K := func(dx, dy float64) (float64, float64) { return x0 + dx*k, y0 + dy*k }
+	L := func(ax, ay, bx, by, w float64, m mat, col vec) {
+		x1, y1 := K(ax, ay)
+		x2, y2 := K(bx, by)
+		f.line(x1, y1, x2, y2, math.Max(.5, w*k), m, col)
 	}
-	shieldUp := smooth(tFire2-.4, tFire2-.1, t)
-	recoil := 0.0
-	if d := t - (tFire2 + impactLag); d > 0 && d < .8 {
-		recoil = -2.6 * math.Exp(-d*6) * math.Cos(d*12) // pushed back, overshoots, settles
+	P := func(m mat, col vec, pts ...[2]float64) {
+		for i := range pts {
+			pts[i][0], pts[i][1] = K(pts[i][0], pts[i][1])
+		}
+		f.poly(pts, m, flat(col))
 	}
-	if d := t - (tFire2 + impactLag); d > 0 && t < tFire2+fireLen {
-		recoil += -.6 * (.5 + .5*math.Sin(d*30)) // shudders under the stream
+	walking := p.march > 0 && p.march < 1
+	sway := .7*math.Sin(t*2.1) + 1.5*math.Sin(t*7)*b2f(walking) // hem follow-through
+	cloak := hex(16, 22, 36)
+	robe := hex(44, 56, 80)
+	// cloak behind him, a long sharp triangle trailing in the wind
+	P(mCloth, cloak, [2]float64{-2.4, -16}, [2]float64{1, -16}, [2]float64{-4.5 - sway, 0}, [2]float64{-8 - sway*1.5, -.5})
+	// robe: one tall triangle from the shoulders to a wide hem that sways
+	P(mWarden, robe, [2]float64{-2.2, -15.5}, [2]float64{2.2, -15.5}, [2]float64{4.2 + sway*.4, -.2}, [2]float64{1, .2}, [2]float64{-4.4 + sway*.6, -.1})
+	// hood: a pointed cowl, its tip bent back, a black opening with two burning eyes
+	P(mWarden, robe, [2]float64{-2.8, -15}, [2]float64{2.8, -15}, [2]float64{2.4, -19}, [2]float64{-.2, -22.5 - .3*math.Sin(t*2)}, [2]float64{-2.6, -19})
+	P(mWarden, hex(2, 3, 6), [2]float64{-.6, -18.8}, [2]float64{2.6, -18.6}, [2]float64{2.2, -16}, [2]float64{.2, -15.8})
+	eye := hex(170, 240, 255).mul(.75 + .25*math.Sin(t*2.7))
+	ex, ey := K(1.4, -17.6)
+	f.put(int(ex), int(ey), mEmit, eye)
+	// arm and staff: the line of action runs from the hem through the arm to the crystal
+	hx, hy := 3.2, -11-p.lift+p.slam*2.5
+	L(.8, -14, hx, hy, 1.6, mWarden, robe)
+	tx, ty := hx+12*math.Sin(p.staffA), hy-12*math.Cos(p.staffA)
+	bx, by := hx-9*math.Sin(p.staffA), hy+9*math.Cos(p.staffA)
+	if by > 0 {
+		by = 0
 	}
-	x += recoil
-	victory := 0.0
-	if c.Ending == EndSurvived {
-		victory = smooth(tResolve+3, tResolve+3.6, t)
+	L(bx, by, tx, ty, .9, mWarden, hex(60, 70, 86))
+	glow := .7 + .3*math.Sin(t*3) + .6*c.wardOn(t)*math.Exp(-math.Max(0, t-tSlam)*3)
+	cx, cy := K(tx, ty)
+	f.disc(cx, cy-.3, .9, mEmit, hex(170, 235, 255).mul(glow))
+	f.put(int(cx), int(cy-1), mEmit, hex(240, 252, 255))
+
+	// rune circle on the snow: flares at the slam, then holds
+	if on := smooth(tSlam, tSlam+.12, t); on > 0 && c.wardOn(t) > 0 {
+		flare := 1 + 2*math.Exp(-(t-tSlam)*5)
+		for a := 0.0; a < 2*math.Pi; a += .05 {
+			rx, ry := f.tx(x0+10*math.Cos(a), y0+1.2+1.6*math.Sin(a))
+			f.raw(int(rx), int(ry), mEmit, hex(80, 180, 255).mul(.35*flare*c.wardOn(t))) // a hairline, even zoomed
+		}
+		for j := 0; j < 10; j++ { // glyph ticks around the ring
+			a := float64(j)/10*2*math.Pi + t*.3
+			rx, ry := f.tx(x0+8*math.Cos(a), y0+1.2+1.1*math.Sin(a))
+			f.raw(int(rx), int(ry), mEmit, hex(170, 235, 255).mul(.5*flare*c.wardOn(t)))
+		}
 	}
-	y := groundY + crouch
-	armor := hex(58, 70, 92)
-	dark := hex(30, 36, 50)
-	// legs: a marching stride, planted when he stands
-	stride := 0.0
-	if march < 1 {
-		stride = math.Sin(t*9) * 1.6
-	}
-	f.line(x-1.2, y-6, x-1.2-stride, y-.6, 1.8, mKnight, dark)
-	f.line(x+1.2, y-6, x+1.2+stride, y-.6, 1.8, mKnight, armor)
-	// cape trails behind with follow-through
-	cw := .8*math.Sin(t*2.3) + 2*(1-march)*math.Abs(math.Sin(t*4.5))
-	f.poly([][2]float64{{x - 2, y - 14}, {x + 1, y - 14}, {x - 3 - cw, y - 3}, {x - 5 - cw, y - 4}}, mCloth, flat(hex(14, 22, 40)))
-	// torso, pauldrons, helmet with a glowing visor
-	f.poly([][2]float64{{x - 2.6, y - 14}, {x + 2.6, y - 14}, {x + 2, y - 6}, {x - 2, y - 6}}, mKnight, flat(armor))
-	f.disc(x-2.5, y-13.5, 1.5, mKnight, armor)
-	f.disc(x+2.5, y-13.5, 1.5, mKnight, armor)
-	f.poly([][2]float64{{x - 2, y - 19}, {x + 2, y - 19}, {x + 2.3, y - 15}, {x - 2.3, y - 15}}, mKnight, flat(armor))
-	f.poly([][2]float64{{x - 1, y - 19}, {x + .3, y - 21}, {x + 1, y - 19}}, mKnight, flat(armor))
-	visor := hex(120, 220, 255).mul(.7 + .3*math.Sin(t*3))
-	f.line(x-.6, y-17, x+2, y-17, .7, mEmit, visor)
-	// sword: lowered when marching, raised overhead in victory
-	sa := -1.2 + 2.6*victory
-	hx, hy := x-2.5, y-10-3*victory
-	f.line(hx, hy, hx+8*math.Cos(math.Pi/2+sa), hy-8*math.Sin(math.Pi/2+sa), .8, mKnight, hex(150, 180, 210))
-	// kite shield, raised toward the dragon
-	sx, sy := x+3.5+shieldUp, y-10-3*shieldUp
-	f.poly([][2]float64{{sx - .5, sy - 4}, {sx + 2.5, sy - 4}, {sx + 2.5, sy + 1.5}, {sx + 1, sy + 4}, {sx - .5, sy + 1.5}}, mKnight, flat(hex(50, 64, 86)))
-	f.line(sx+1, sy-2.5, sx+1, sy+1.5, .6, mEmit, hex(110, 210, 255).mul(.5+.5*shieldUp))
-	// sparks where the plasma meets the shield: ballistic particles, no state needed
-	for k := 0; k < 60; k++ {
-		born := tFire2 + impactLag + float64(k)*.035
-		age := t - born
-		if age < 0 || age > .7 || born > tFire2+fireLen {
+}
+
+// inhale pulls motes of cold light into the jaw before each breath: the dragon's tell.
+func (c *Cutscene) inhale(f *frame) {
+	for bi, b := range c.bursts() {
+		d := f.t - (b.from - .7)
+		if d < 0 || d > .7 {
 			continue
 		}
-		a := hash(c.seed, k)*2.4 - 1.9
-		v := 10 + 18*hash(c.seed, k+500)
-		px := sx + 3 + v*math.Cos(a)*age
-		py := sy + v*math.Sin(a)*age + 30*age*age
-		f.put(int(px), int(py), mEmit, hex(230, 250, 255).mul(1-age/.7))
+		mx, my := c.mouth(f.t)
+		mx -= f.camX
+		for j := 0; j < 36; j++ {
+			u := math.Mod(hash(c.seed, bi*100+j)+d*1.6, 1)
+			a := hash(c.seed, bi*100+j+50) * 2 * math.Pi
+			r := 9 * (1 - u)
+			f.put(int(mx+r*math.Cos(a)), int(my+r*math.Sin(a)*.7), mEmit, hex(90, 190, 255).mul(.3+.6*u))
+		}
+	}
+}
+
+func b2f(b bool) float64 {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+// ward draws the ice dome as additive light: a bright rim, a faint hexagonal lattice,
+// ripples where the breath strikes and, when the drill fails, a fracture.
+func (c *Cutscene) ward(f *frame, out *[pxH][SceneW]vec) {
+	on := c.wardOn(f.t)
+	if on <= 0 {
+		return
+	}
+	p := c.wizardPose(f.t)
+	cx, cy := p.x-f.camX, p.y
+	gap := c.Ending == EndBreached && f.t > tResolve+.9
+	for y := 0; y < pxH; y++ {
+		for x := 0; x < SceneW; x++ {
+			wx, wy := f.inv(float64(x)+.5, float64(y)+.5)
+			if wy > cy {
+				continue
+			}
+			dx, dy := wx-cx, wy-cy
+			r := math.Hypot(dx, dy*1.15) / (wardR * on)
+			if r > 1.08 {
+				continue
+			}
+			ang := math.Atan2(-dy, dx)
+			if gap && ang > .55 && ang < 1.15 {
+				continue // the ward has broken here
+			}
+			v := 0.0
+			if r > .9 {
+				v = .55 * (1 - math.Abs(r-1)/.18)
+			}
+			// hexagonal lattice
+			hx, hy := wx*.55, wy*.55/0.866
+			if math.Abs(math.Mod(hx+math.Floor(hy)*.5+100, 1)-.5) > .42 || math.Abs(math.Mod(hy+100, 1)-.5) > .44 {
+				v += .1
+			}
+			// impact ripples: brighten where heat touches the ward
+			v += 1.4 * c.heatAt(wx, wy) * (1 - r*.3)
+			out[y][x] = out[y][x].add(hex(110, 200, 255).mul(v * on))
+		}
+	}
+}
+
+func (c *Cutscene) heatAt(x, y float64) float64 {
+	m := 0.0
+	for _, d := range [][2]float64{{0, 0}, {2, 0}, {-2, 0}, {0, 2}, {0, -2}} {
+		m = math.Max(m, c.sample(x+d[0], y+d[1]))
+	}
+	return m
+}
+
+// frost is the warden's answer in the survived ending: a cone of ice light from the
+// crystal toward the dragon.
+func (c *Cutscene) frost(f *frame) {
+	if c.Ending != EndSurvived {
+		return
+	}
+	a := smooth(tThrust, tThrust+.15, f.t) * (1 - smooth(tThrust+1, tThrust+1.6, f.t))
+	if a <= 0 {
+		return
+	}
+	sx, sy := c.crystal(f.t, f.camX)
+	tx, ty := c.mouth(f.t)
+	tx -= f.camX
+	for j := 0; j < 240; j++ {
+		u := math.Mod(hash(c.seed, j)+f.t*1.8, 1)
+		spread := (hash(c.seed, j+900) - .5) * 16 * u
+		px := sx + (tx-sx)*u - (ty-sy)/40*spread
+		py := sy + (ty-sy)*u + (tx-sx)/40*spread
+		qx, qy := f.tx(px, py)
+		f.raw(int(qx), int(qy), mEmit, hex(170, 230, 255).mul(.7*a*(1-.6*u)))
 	}
 }
 
@@ -777,7 +1007,7 @@ func (c *Cutscene) endingScene(f *frame) {
 			return
 		}
 		px, top := ox+5.5, -1+7*(1-up) // the banner climbs the west tower's spire
-		f.line(px, -1, px, 7, .6, mKnight, hex(140, 160, 190))
+		f.line(px, -1, px, 7, .6, mWarden, hex(140, 160, 190))
 		// cloth: each column follows a travelling wave, amplitude growing toward the
 		// free edge, with a little sag and slope shading
 		for i := 0; i < 14; i++ {
@@ -831,7 +1061,7 @@ func (c *Cutscene) snow(f *frame) {
 		x := math.Mod(s[0]-f.t*(2+2*s[3])-f.camX*(.3+.3*s[3])+SceneW*20, SceneW)
 		xi, yi := int(x), int(y)
 		if m := f.mt[yi][xi]; m == mSky || m == mMount || m == mGround {
-			f.put(xi, yi, mEmit, f.emit[yi][xi].add(f.pig[yi][xi]).lerp(hex(190, 210, 235), .08+.12*s[3]))
+			f.raw(xi, yi, mEmit, f.emit[yi][xi].add(f.pig[yi][xi]).lerp(hex(190, 210, 235), .08+.12*s[3]))
 		}
 	}
 }
@@ -864,6 +1094,14 @@ func (c *Cutscene) lights(f *frame, dx, dy float64, dragon bool) {
 	}
 	if c.Ending == EndBreached && f.t > tResolve+1.7 {
 		ls = append(ls, src{26 - f.camX, 16, 9, vec{.6, .05, .1}.mul(.6)})
+	}
+	if c.wizardVisible(f.t) {
+		cx, cy := c.crystal(f.t, f.camX)
+		ls = append(ls, src{cx, cy, 7, hex(110, 200, 255).mul(.5 + .9*c.wardOn(f.t))})
+	}
+	for i := range ls { // sources are in world pixels; light the zoomed screen
+		ls[i].x, ls[i].y = f.tx(ls[i].x, ls[i].y)
+		ls[i].r *= f.z
 	}
 	moon := hex(60, 80, 110)
 	fl := c.flash(f.t)
@@ -904,7 +1142,7 @@ func (c *Cutscene) compose(f *frame) *[CutH][SceneW]Cell {
 					return m == mSky || m == mMount
 				}
 				switch {
-				case m == mDragon || m == mKnight:
+				case m == mDragon || m == mWarden:
 					if open(0, -1) {
 						col = col.add(hex(110, 190, 240).mul(.5 + .5*fl).add(f.light[Y][X].mul(.4)))
 					} else if open(-1, 0) || open(1, 0) {
@@ -914,12 +1152,14 @@ func (c *Cutscene) compose(f *frame) *[CutH][SceneW]Cell {
 					col = col.add(f.light[Y][X].mul(.5))
 				}
 			}
-			if h := c.heat[Y][X]; h > 0 {
+			wx, wy := f.inv(float64(X), float64(Y))
+			if h := c.sample(wx, wy); h > .02 {
 				col = col.add(plasma(h)) // additive: plasma glows over whatever it engulfs
 			}
 			px[y][x] = col
 		}
 	}
+	c.ward(f, &px)
 	out := &[CutH][SceneW]Cell{}
 	for r := 0; r < SceneH; r++ {
 		for x := 0; x < SceneW; x++ {
@@ -1020,11 +1260,11 @@ type chapter struct {
 func (c *Cutscene) narration() []chapter {
 	return []chapter{
 		{0, []string{"You keep a box of treasures. Drawings. Photos. Things you cannot lose."}},
-		{5, []string{"sapper raises a fortress around it. Each night it hides a copy far away."}},
+		{1.5, []string{"sapper, the warden, raises a fortress around it. Each night it hides", "a copy far away."}},
 		{tSilence, []string{"But a copy no one tests is a promise no one keeps."}},
-		{tStrike + .6, []string{"So each week, sapper summons the dragon."}},
+		{tStrike + .6, []string{"So each week, the warden summons the dragon."}},
 		{tFire1, []string{"The fortress burns. sapper rebuilds it from the copy", "and checks every drawing, one by one."}},
-		{tKnight + .5, []string{"The sentinel stands guard. It knows the sound of a monster", "scribbling over everything at once."}},
+		{tKnight + .5, []string{"The warden raises a ward. It knows the sound of a monster", "scribbling over everything at once."}},
 		{tResolve + 1, wrap(c.Final, 74)},
 	}
 }
