@@ -138,8 +138,22 @@ func Verify(m *Manifest, base string) (Result, error) {
 	sort.Strings(paths)
 	for _, p := range paths {
 		want := m.Entries[p]
-		got, err := statEntry(RestoredPath(base, p))
 		r.Checked++
+		if !underRoot(m.Roots, p) {
+			r.Problems = append(r.Problems, Problem{p, "manifest path outside backup roots"})
+			continue
+		}
+		rp := RestoredPath(base, p)
+		if !inside(base, rp) {
+			r.Problems = append(r.Problems, Problem{p, "manifest path escapes restore directory"})
+			continue
+		}
+		if link := symlinkAncestor(base, rp); link != "" {
+			// Never follow a restored symlink: it could point anywhere on this host.
+			r.Problems = append(r.Problems, Problem{p, "parent is a symlink in restore: " + link})
+			continue
+		}
+		got, err := statEntry(rp)
 		switch {
 		case errors.Is(err, fs.ErrNotExist):
 			r.Problems = append(r.Problems, Problem{p, "missing"})
@@ -176,6 +190,41 @@ func Verify(m *Manifest, base string) (Result, error) {
 		}
 	}
 	return r, nil
+}
+
+// underRoot reports whether p is a clean absolute path equal to or inside one of roots.
+func underRoot(roots []string, p string) bool {
+	if !filepath.IsAbs(p) || filepath.Clean(p) != p {
+		return false
+	}
+	for _, root := range roots {
+		if root == p || inside(root, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// inside reports whether child is strictly inside parent, lexically.
+func inside(parent, child string) bool {
+	rel, err := filepath.Rel(parent, child)
+	return err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
+}
+
+// symlinkAncestor returns the first directory between base (exclusive) and p (exclusive) that is a symlink.
+func symlinkAncestor(base, p string) string {
+	rel, err := filepath.Rel(base, filepath.Dir(p))
+	if err != nil || rel == "." {
+		return ""
+	}
+	cur := base
+	for _, part := range strings.Split(rel, string(filepath.Separator)) {
+		cur = filepath.Join(cur, part)
+		if info, err := os.Lstat(cur); err == nil && info.Mode()&fs.ModeSymlink != 0 {
+			return cur
+		}
+	}
+	return ""
 }
 
 func compare(want, got Entry) string {
