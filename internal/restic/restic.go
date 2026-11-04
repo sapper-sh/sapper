@@ -23,6 +23,12 @@ var ErrNoSnapshot = errors.New("no snapshot found; run `sapper backup` first")
 // ErrNoRepository is returned when there is no restic repository at the configured location.
 var ErrNoRepository = errors.New("no restic repository at the configured location yet; `sapper backup` creates it")
 
+// ErrWrongPassword is returned when restic cannot open the repository with the password.
+var ErrWrongPassword = errors.New("wrong repository password or no matching key; check the password source (--password-file, --password-stdin or the blueprint's password_env). Without the password the backups cannot be read by anyone")
+
+// ErrLocked is returned when another restic process, or a crashed one, holds a lock on the repository.
+var ErrLocked = errors.New("repository is locked by another restic process")
+
 // Client runs restic against one repository.
 type Client struct {
 	Bin        string
@@ -81,9 +87,28 @@ func (c *Client) run(ctx context.Context, args ...string) ([]byte, error) {
 	cmd := c.cmd(ctx, args...)
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
-		return stdout.Bytes(), fmt.Errorf("restic %s: %w: %s", args[0], err, strings.TrimSpace(stderr.String()))
+		return stdout.Bytes(), classify(args[0], err, stderr.String())
 	}
 	return stdout.Bytes(), nil
+}
+
+// classify turns restic's exit codes (0.17: 10 no repository, 11 locked, 12 wrong password)
+// into errors that say what to do.
+func classify(sub string, err error, stderr string) error {
+	msg := strings.TrimSpace(stderr)
+	var exit *exec.ExitError
+	code := -1
+	if errors.As(err, &exit) {
+		code = exit.ExitCode()
+	}
+	switch {
+	case code == 12 || strings.Contains(msg, "wrong password"):
+		return fmt.Errorf("restic %s: %w", sub, ErrWrongPassword)
+	case code == 11 || strings.Contains(msg, "repository is already locked"):
+		return fmt.Errorf("restic %s: %w: %s\nIf no other backup, prune or check is running, the lock is stale (a killed or crashed run). Inspect it with `restic -r <repository> list locks --no-lock`, then remove stale locks with `restic -r <repository> unlock`. Do not use --remove-all while another restic process may be running",
+			sub, ErrLocked, msg)
+	}
+	return fmt.Errorf("restic %s: %w: %s", sub, err, msg)
 }
 
 // EnsureRepo initialises the repository if it does not exist yet.
@@ -101,7 +126,7 @@ func (c *Client) EnsureRepo(ctx context.Context) (created bool, err error) {
 		_, err := c.run(ctx, "init")
 		return err == nil, err
 	}
-	return false, fmt.Errorf("restic cat config: %w: %s", err, strings.TrimSpace(stderr.String()))
+	return false, classify("cat config", err, stderr.String())
 }
 
 // Backup backs up paths with tags and returns the new snapshot ID.
@@ -178,7 +203,9 @@ func parseLatest(out []byte) (Snapshot, error) {
 
 // Restore restores snapshot id into target.
 func (c *Client) Restore(ctx context.Context, id, target string) error {
-	_, err := c.run(ctx, "restore", id, "--target", target)
+	// --no-cache: restic's local cache holds tree blobs, and a drill served from the cache
+	// would not notice a damaged or deleted pack in the repository itself.
+	_, err := c.run(ctx, "restore", "--no-cache", id, "--target", target)
 	return err
 }
 

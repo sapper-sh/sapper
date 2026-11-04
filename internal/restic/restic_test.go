@@ -2,6 +2,9 @@ package restic
 
 import (
 	"errors"
+	"fmt"
+	"os/exec"
+	"strings"
 	"testing"
 )
 
@@ -57,5 +60,21 @@ func TestNewMissingBinary(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	if _, err := New("/tmp/r", "pw"); !errors.Is(err, ErrNotInstalled) {
 		t.Fatalf("err = %v, want ErrNotInstalled", err)
+	}
+}
+
+func TestClassifyExitCodes(t *testing.T) {
+	run := func(code int) error {
+		return exec.Command("sh", "-c", fmt.Sprintf("exit %d", code)).Run()
+	}
+	if err := classify("snapshots", run(12), "Fatal: wrong password or no key found"); !errors.Is(err, ErrWrongPassword) {
+		t.Fatalf("exit 12: %v", err)
+	}
+	err := classify("forget", run(11), "unable to create lock in backend: repository is already locked by PID 7")
+	if !errors.Is(err, ErrLocked) || !strings.Contains(err.Error(), "restic -r <repository> unlock") || !strings.Contains(err.Error(), "PID 7") {
+		t.Fatalf("exit 11: %v", err)
+	}
+	if err := classify("backup", run(3), "some files unreadable"); errors.Is(err, ErrLocked) || errors.Is(err, ErrWrongPassword) || !strings.Contains(err.Error(), "unreadable") {
+		t.Fatalf("exit 3: %v", err)
 	}
 }

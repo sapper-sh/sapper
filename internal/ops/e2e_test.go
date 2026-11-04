@@ -87,3 +87,45 @@ func TestEndToEndRealRestic(t *testing.T) {
 		t.Fatal("live data changed during drills")
 	}
 }
+
+// TestDrillDoesNotTrustResticCache damages the pack that holds the snapshot's trees. restic
+// keeps tree blobs in its local cache, so a restore that uses the cache still succeeds;
+// a drill must read the repository itself.
+func TestDrillDoesNotTrustResticCache(t *testing.T) {
+	if _, err := exec.LookPath("restic"); err != nil {
+		t.Skip("restic not installed")
+	}
+	bp := newFortress(t)
+	bp.Backup.Repository = filepath.Join(t.TempDir(), "repo")
+	t.Setenv("RESTIC_CACHE_DIR", t.TempDir())
+	ctx := context.Background()
+	c, err := restic.New(bp.RepoLocation(), "test-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Backup(ctx, bp, c); err != nil {
+		t.Fatal(err)
+	}
+	var packs []string
+	_ = filepath.WalkDir(filepath.Join(bp.RepoLocation(), "data"), func(p string, d os.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			packs = append(packs, p)
+		}
+		return nil
+	})
+	for _, p := range packs {
+		b, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b[len(b)/2] ^= 1
+		_ = os.Chmod(p, 0o600)
+		if err := os.WriteFile(p, b, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rep, err := Breach(ctx, bp, c, DrillOptions{})
+	if err == nil || rep.Report.Verdict == report.Survived {
+		t.Fatalf("drill survived a repository with every pack damaged: %v", err)
+	}
+}

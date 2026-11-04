@@ -140,6 +140,12 @@ type DrillReport struct {
 // Survived reports whether the restore matched the manifest exactly.
 func (d DrillReport) Survived() bool { return len(d.Problems) == 0 }
 
+// ErrWrongPassword and ErrLocked come from restic; see the restic package.
+var (
+	ErrWrongPassword = restic.ErrWrongPassword
+	ErrLocked        = restic.ErrLocked
+)
+
 // ErrBreached is returned when a drill finds problems.
 var ErrBreached = errors.New("breach drill failed")
 
