@@ -233,6 +233,33 @@ func (bp *Blueprint) RepoLocation() string {
 	return filepath.Join(bp.Dir, bp.Backup.Repository)
 }
 
+// RedactedRepo returns RepoLocation with any password in URL userinfo replaced by "***",
+// for display in logs and dry-run output (e.g. rest:https://user:secret@host/ ).
+func (bp *Blueprint) RedactedRepo() string { return RedactRepo(bp.RepoLocation()) }
+
+// RedactRepo hides the password part of URL userinfo in a restic repository string.
+func RedactRepo(repo string) string {
+	i := strings.Index(repo, "://")
+	if i < 0 {
+		return repo
+	}
+	start := i + 3
+	end := len(repo)
+	if j := strings.IndexAny(repo[start:], "/?#"); j >= 0 {
+		end = start + j
+	}
+	auth := repo[start:end]
+	at := strings.LastIndex(auth, "@")
+	if at < 0 {
+		return repo
+	}
+	user, _, hasPass := strings.Cut(auth[:at], ":")
+	if !hasPass {
+		return repo
+	}
+	return repo[:start] + user + ":***" + auth[at:] + repo[end:]
+}
+
 // VolumePaths returns every declared host path, sorted.
 func (bp *Blueprint) VolumePaths() []string {
 	var out []string

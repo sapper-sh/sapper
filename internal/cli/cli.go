@@ -349,9 +349,9 @@ changes while it runs. The repository is initialised on first use.`,
 			}
 			if dryRun {
 				if a.jsonOut {
-					return a.printJSON(map[string]any{"repository": bp.RepoLocation(), "paths": bp.VolumePaths()})
+					return a.printJSON(map[string]any{"repository": bp.RedactedRepo(), "paths": bp.VolumePaths()})
 				}
-				fmt.Fprintf(a.stdout, "repository: %s\n", bp.RepoLocation())
+				fmt.Fprintf(a.stdout, "repository: %s\n", bp.RedactedRepo())
 				for _, p := range bp.VolumePaths() {
 					fmt.Fprintln(a.stdout, "  "+p)
 				}
@@ -361,7 +361,7 @@ changes while it runs. The repository is initialised on first use.`,
 			if err != nil {
 				return err
 			}
-			a.logf("backing up %d volumes to %s", len(bp.VolumePaths()), bp.RepoLocation())
+			a.logf("backing up %d volumes to %s", len(bp.VolumePaths()), bp.RedactedRepo())
 			rec, err := ops.Backup(cmd.Context(), bp, c)
 			if err != nil {
 				return err

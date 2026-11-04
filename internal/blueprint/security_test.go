@@ -88,3 +88,18 @@ func TestParseBillionLaughs(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+func TestRedactRepo(t *testing.T) {
+	for in, want := range map[string]string{
+		"rest:https://alice:hunter2@backup.example:8000/repo": "rest:https://alice:***@backup.example:8000/repo",
+		"s3:https://s3.example/bucket":                        "s3:https://s3.example/bucket",
+		"rest:https://alice@host/":                            "rest:https://alice@host/",
+		"sftp:me@host:/r":                                     "sftp:me@host:/r",
+		"/srv/backups/restic":                                 "/srv/backups/restic",
+		"rest:https://u:p@ss@host/x?y=@":                      "rest:https://u:***@host/x?y=@",
+	} {
+		if got := RedactRepo(in); got != want {
+			t.Errorf("RedactRepo(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
