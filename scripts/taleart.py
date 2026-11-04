@@ -20,24 +20,25 @@ KX, KY = W / 66, H / 30    # scenes are drawn on a 66x30 grid and scaled up
 
 
 class Canvas:
-    def __init__(self, w=W, h=H):
+    def __init__(self, w=W, h=H, k=None):
         self.w, self.h = w, h
+        self.kx, self.ky = (KX, KY) if k is None else k
         self.im = Image.new("L", (w * S, h * S), 0)
         self.d = ImageDraw.Draw(self.im)
 
         self.marks = []
 
     def P(self, pts):
-        return [(x * KX * S, y * KY * S) for x, y in pts]
+        return [(x * self.kx * S, y * self.ky * S) for x, y in pts]
 
     def poly(self, pts, v):
         self.d.polygon(self.P(pts), fill=v)
 
     def rect(self, x0, y0, x1, y1, v):
-        self.d.rectangle((x0 * KX * S, y0 * KY * S, x1 * KX * S - 1, y1 * KY * S - 1), fill=v)
+        self.d.rectangle((x0 * self.kx * S, y0 * self.ky * S, x1 * self.kx * S - 1, y1 * self.ky * S - 1), fill=v)
 
     def ellipse(self, cx, cy, rx, ry, v):
-        self.d.ellipse(((cx - rx) * KX * S, (cy - ry) * KY * S, (cx + rx) * KX * S, (cy + ry) * KY * S), fill=v)
+        self.d.ellipse(((cx - rx) * self.kx * S, (cy - ry) * self.ky * S, (cx + rx) * self.kx * S, (cy + ry) * self.ky * S), fill=v)
 
     def line(self, pts, v, w=1.0):
         self.d.line(self.P(pts), fill=v, width=max(1, int(w * S)), joint="curve")
@@ -84,7 +85,7 @@ def halo(cov, w, h):
     return out
 
 
-def to_blocks(c, glow=True):
+def to_blocks(c, glow=True, keep=False):
     g = cells(c)
     cov = [[v[0] for v in row] for row in g]
     hal = halo(cov, c.w, c.h) if glow else None
@@ -119,6 +120,8 @@ def to_blocks(c, glow=True):
             else:
                 s += " "
         lines.append(s)
+    if keep:
+        return [l.rstrip() for l in lines]
     return trim(place(lines, c, 2))
 
 
@@ -257,28 +260,7 @@ def p_chest():
 
 def p_dragon():
     c = Canvas()
-    # wings (back)
-    c.poly([(30, 12), (20, 0.5), (14, 3.5), (8, 2), (4, 8), (14, 10), (22, 14)], 150)
-    # body and tail
-    c.ellipse(32, 15, 9, 4.2, 220)
-    c.stroke(lambda t: (23 - 18 * t, 16 + 7 * math.sin(t * 2.6)), 0, 1, 210, 4.5, .9)
-    c.poly([(3.5, 18.8), (0.5, 17), (2.5, 21.5)], 230)       # tail spade
-    # neck and head
-    c.stroke(lambda t: (39 + 9 * t, 13 - 6 * math.sin(t * 1.7)), 0, 1, 230, 4.2, 2.6)
-    c.poly([(47, 5.5), (54, 6.2), (57.5, 8.3), (52.5, 9.1), (55.5, 10.3), (49, 10.6), (46.5, 9)], 245)
-    c.poly([(47.5, 6), (45, 1.5), (49, 5.4)], 255)              # horn
-    c.ellipse(51, 7.2, .55, .5, 0)                              # eye
-    # front wing with finger bones
-    c.poly([(34, 12), (40, -1), (46, 1), (44, 4), (47, 6), (41, 9), (38, 14)], 255)
-    for a, b in (((35, 12), (40.5, 0)), ((36, 12.5), (45.5, 1.3)), ((37, 13), (46.5, 6))):
-        c.line([a, b], 120, .45)
-    # belly scales
-    for i in range(26, 39, 2):
-        c.line([(i, 17.5), (i + 1, 18.8)], 130, .35)
-    # legs and claws
-    for x in (27, 35):
-        c.stroke(lambda t, x=x: (x + 1.5 * t, 18 + 5 * t), 0, 1, 210, 2.6, 1.6)
-        c.poly([(x + .3, 23), (x + 3.4, 23), (x + 3.8, 24.3), (x - .4, 24.2)], 230)
+    dragon(c, 0)
     # castle being smashed, small, bottom right
     c.rect(58, 22, 66, 30, 120)
     c.rect(59, 19.5, 62, 22, 120)
@@ -290,6 +272,43 @@ def p_dragon():
         t = i / 17
         c.ellipse(57.5 + 6 * t, 9.3 + 9 * t * t, .5 + 2.1 * t, .4 + 1.7 * t, int(255 - 60 * t))
     return c
+
+
+def dragon(c, flap):
+    """flap 0 is wings up, 1 is wings level, 2 is wings down."""
+    if flap == 0:
+        back = [(30, 12), (20, 0.5), (14, 3.5), (8, 2), (4, 8), (14, 10), (22, 14)]
+        front = [(34, 12), (40, -1), (46, 1), (44, 4), (47, 6), (41, 9), (38, 14)]
+        bones = (((35, 12), (40.5, 0)), ((36, 12.5), (45.5, 1.3)), ((37, 13), (46.5, 6)))
+    elif flap == 1:
+        back = [(30, 12.5), (16, 7), (10, 9), (3, 8.5), (6, 12), (16, 13), (24, 15)]
+        front = [(34, 12.5), (46, 6.5), (52, 8), (48, 10), (51, 12), (42, 13), (38, 14.5)]
+        bones = (((35, 13), (46, 7)), ((36, 13.5), (51.5, 8.2)), ((37, 14), (50.5, 12)))
+    else:
+        back = [(30, 13), (22, 22), (16, 20), (11, 24), (9, 18), (18, 15), (24, 15)]
+        front = [(34, 13), (42, 26), (46, 23), (49, 26), (48, 19), (42, 16), (38, 15)]
+        bones = (((35, 13.5), (42.5, 25)), ((36, 14), (46, 22.5)), ((37, 14.5), (48.5, 25)))
+    c.poly(back, 150)
+    # body and tail
+    c.ellipse(32, 15, 9, 4.2, 220)
+    c.stroke(lambda t: (23 - 18 * t, 16 + 7 * math.sin(t * 2.6)), 0, 1, 210, 4.5, .9)
+    c.poly([(3.5, 18.8), (0.5, 17), (2.5, 21.5)], 230)       # tail spade
+    # neck and head
+    c.stroke(lambda t: (39 + 9 * t, 13 - 6 * math.sin(t * 1.7)), 0, 1, 230, 4.2, 2.6)
+    c.poly([(47, 5.5), (54, 6.2), (57.5, 8.3), (52.5, 9.1), (55.5, 10.3), (49, 10.6), (46.5, 9)], 245)
+    c.poly([(47.5, 6), (45, 1.5), (49, 5.4)], 255)              # horn
+    c.ellipse(51, 7.2, .55, .5, 0)                              # eye
+    # front wing with finger bones
+    c.poly(front, 255)
+    for a, b in bones:
+        c.line([a, b], 120, .45)
+    # belly scales
+    for i in range(26, 39, 2):
+        c.line([(i, 17.5), (i + 1, 18.8)], 130, .35)
+    # legs and claws
+    for x in (27, 35):
+        c.stroke(lambda t, x=x: (x + 1.5 * t, 18 + 5 * t), 0, 1, 210, 2.6, 1.6)
+        c.poly([(x + .3, 23), (x + 3.4, 23), (x + 3.8, 24.3), (x - .4, 24.2)], 230)
 
 
 def p_knight():
@@ -363,6 +382,26 @@ def p_breached():
     return c
 
 
+def sprite_dragon(flap):
+    """Small dragon for the cutscene, facing left, 34 columns."""
+    c = Canvas(34, 18, (34 / 60, 18 / 28))
+    c.ox = 0
+    dragon(c, flap)
+    c.light(.6)
+    c.im = c.im.transpose(Image.FLIP_LEFT_RIGHT)
+    return c
+
+
+def sprite_castle():
+    c = Canvas(46, 26, (46 / 62, 26 / 37))
+    castle(c, ox=0, oy=7)
+    c.light(.6)
+    return c
+
+
+SPRITES = {"s-dragon-0": lambda: sprite_dragon(0), "s-dragon-1": lambda: sprite_dragon(1),
+           "s-dragon-2": lambda: sprite_dragon(2), "s-castle": sprite_castle}
+
 PANELS = {"castle": p_castle, "chest": p_chest, "dragon": p_dragon, "knight": p_knight,
           "survived": p_survived, "breached": p_breached}
 
@@ -375,3 +414,6 @@ if __name__ == "__main__":
             fh.write("\n".join(to_blocks(c)) + "\n")
         with open(os.path.join(out, name + ".ascii"), "w") as fh:
             fh.write("\n".join(to_ascii(c)) + "\n")
+    for name, f in SPRITES.items():
+        with open(os.path.join(out, name + ".txt"), "w") as fh:
+            fh.write("\n".join(to_blocks(f(), glow=False, keep=True)) + "\n")
