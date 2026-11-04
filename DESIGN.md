@@ -40,6 +40,16 @@ under it. A drill restores and compares sha256, size, type, symlink target and
 permission bits (permissions skipped on Windows). Files present in the restore
 but not in the manifest are failures too.
 
+**Drills bypass the restic cache.** restic caches tree blobs locally. With the
+cache, a drill still passed after the repository's tree pack was damaged or
+deleted (docs/SIMULATIONS.md, S01). Restores and manifest reads use `--no-cache`.
+
+**Refuse suspicious backups instead of warning about them.** Ransomware, an
+unmounted disk and `rm -rf` all show up as data that changed sharply since the
+last backup. Backing it up is what pushes good snapshots out of retention, so
+backup stops (exit 6) and `--force` is required. A warning in a cron mail nobody
+reads would not help.
+
 **Restore into `os.MkdirTemp`, then verify isolation.** The target is resolved
 through symlinks and rejected if it overlaps any volume, the repository, the
 state directory or `.sapper/`. The copy is deleted afterwards unless `--keep`.
@@ -92,15 +102,24 @@ says so and does not treat it as a breach.
 
 ## Limitations
 
-- Manifests live only in local state. If the host is lost, a drill from a new
-  machine has no manifest to compare against. Planned: store the manifest in
-  the repository as its own tagged snapshot.
+- The manifest copy in the repository is protected by restic's encryption, so
+  anyone with the password can add one. Unsigned, sapper refuses two copies that
+  disagree but cannot tell which is genuine. Sign with `backup --sign-key` and
+  drill with `--pub-key` to settle it.
+- Suspicious-change checks are thresholds: an empty volume, less than half the
+  files or bytes, or at least half the files changed with mostly high-entropy
+  contents. Ransomware that encrypts less than that per backup gets through
+  (scenario S26 in docs/SIMULATIONS.md). Files that are already compressed or
+  encrypted, such as photos, archives or vault blobs, look random when they change.
 - Backups of running apps can fail with "volumes changed during backup". There
   is no automatic stop/start or database dump hook yet.
 - The catalogue has three apps and no way to add custom ones.
 - `drill.cron` is a line to install by hand; no systemd timer generation
   (`sapper schedule`), no Windows Task Scheduler support.
-- Only the latest snapshot is drilled.
+- Older snapshots are drilled only with `--sample` or `--snapshot`, and only
+  those with a manifest (local or in the repository).
+- The append-only check is a warning, and only meaningful for local and sftp
+  repositories; sapper cannot see a REST server's or bucket's settings.
 - `build --up` was not exercised against a real docker daemon in development.
 - Large volumes are hashed twice per backup and once per drill; no parallelism.
 - No packaging, signed releases or SBOM yet.

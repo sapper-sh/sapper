@@ -51,6 +51,11 @@ manifest stored in the per-user state directory, and runs breach drills that
 | T18 | Silent edit of past drill results to hide a failed drill (CWE-345) | sha256 hash chain over reports; `reports verify`; optional ed25519 signatures with a pinned public key; `--head` for truncation | `TestChainDetectsTampering`, `TestSigning` |
 | T19 | Signing key leaked or committed (CWE-312, CWE-522) | `keygen` writes `0600`, `O_EXCL`, default under the user config dir, never prints the private key; `--sign-key` warns on loose modes; load errors never echo file contents | `TestLoadPrivateKeyWarnsAndHidesContents`, `TestReportsEndToEnd` |
 | T20 | Planted huge or symlinked report files (CWE-400, CWE-59) | report reads capped at 32 MiB, key reads at 64 KiB; new reports created with `O_EXCL` so an existing file or symlink is never followed or overwritten | `TestAppendRefusesToChainPastUnreadableReport` |
+| T21 | Ransomware or a missing mount produces a backup of damaged data that retention then uses to push out good snapshots | suspicious-change checks refuse the backup (exit 6) unless `--force`; retention keeps the newest drilled snapshot | `TestAnomalies`, sim S06–S08, S19 |
+| T22 | Repository deleted from a compromised host (Code Spaces, Conti) | detection only: `preflight` flags a repository this user can delete; backup refuses to `init` a new repository where one existed | sim S22, S23 |
+| T23 | Damaged repository hidden by restic's local cache | restores and manifest reads use `--no-cache` | `TestDrillDoesNotTrustResticCache`, sim S01 |
+| T24 | Forged manifest copy planted by someone with the repository password (CWE-345) | optional ed25519 signature on the copy, required with `--pub-key`; differing copies for one snapshot refused; copy reads capped at 256 MiB | `TestManifestCopyRoundTripAndSignature`, sim S25 |
+| T25 | Repository URL password echoed by lock guidance (CWE-532) | lock guidance prints `<repository>`, not the URL | `TestClassifyExitCodes` |
 
 ## Residual risks / not addressed
 

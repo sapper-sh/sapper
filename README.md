@@ -38,8 +38,9 @@ Apps in the built-in catalogue: `vaultwarden`, `filebrowser`, `memos`.
 | `init`     | write an example blueprint (`--yes` to overwrite) |
 | `validate` | check the blueprint |
 | `build`    | render `.sapper/` (`--dry-run`, `--up`, `--runtime docker\|podman`) |
-| `backup`   | restic backup of every volume plus a checksum manifest (`--dry-run`) |
-| `breach`   | restore latest snapshot to a temp dir, verify it and print an evidence report (`--brief`, `--sign-key`, `--keep`, `--temp-dir`) |
+| `preflight` | check volumes, repository, password, locks, free space, and whether this host can delete the backups |
+| `backup`   | restic backup of every volume plus a checksum manifest, kept locally and in the repository (`--dry-run`, `--force`, `--sign-key`) |
+| `breach`   | restore latest snapshot to a temp dir, verify it and print an evidence report (`--brief`, `--sign-key`, `--keep`, `--temp-dir`, `--snapshot`, `--sample`, `--pub-key`) |
 | `reports`  | list saved drill reports; `reports show [n]` (`--markdown`, `--brief`); `reports verify` (`--pub-key`, `--head`) |
 | `keygen`   | create an ed25519 key pair for signing reports (`--out`) |
 | `status`   | boot art, fortress, last backup, last drill |
@@ -59,6 +60,7 @@ Results go to stdout, progress and logs to stderr.
 | 3 | `breach` ran and found damaged, missing or unexpected files; `reports verify` found an edited, missing or reordered report |
 | 4 | `breach` could not reach a verdict (no snapshot, no manifest, restore failed) |
 | 5 | restic, docker or podman not installed |
+| 6 | `backup` refused because live data looks damaged (empty or shrunk volume, mass encryption); `--force` overrides |
 
 ## Drill reports
 
@@ -118,6 +120,34 @@ backup it tested (RPO), and compares them with:
 
 A missed target is reported in the headline and the next steps. It does not
 change the exit code: the data still restored correctly.
+
+## Protecting the backups themselves
+
+Most famous backup losses were not restic-style corruption. Backups had
+silently stopped, or someone deleted them, or the data was already broken when
+it was backed up. [docs/SIMULATIONS.md](docs/SIMULATIONS.md) has 26 such
+scenarios and what sapper does about each. In short:
+
+- **Before backing up**, sapper compares live data with the last backup. It
+  refuses (exit 6) when a volume is empty (often an unmounted disk), has lost
+  more than half its files or bytes, or when most files changed and the changed
+  files look encrypted. Check what happened, then `sapper backup --force` if it
+  was intended.
+- **Retention never removes the newest snapshot that passed a drill**, so a run
+  of bad backups cannot push out the last good one.
+- **The manifest is also stored in the repository** (as a snapshot tagged
+  `sapper-manifest`). A drill from a new machine, after the original host is
+  gone, uses it. Sign it with `sapper backup --sign-key` and require the
+  signature with `sapper breach --pub-key`.
+- **Drill older snapshots too**: `sapper breach --sample 3` restores three random
+  older snapshots as well. `--snapshot <id>` drills one.
+- **Keep one copy this host cannot delete.** Ransomware running as your user can
+  delete a local or sftp repository. Use
+  [rest-server](https://github.com/restic/rest-server) with `--append-only`, or
+  S3/B2 object lock, and run `forget`/`prune` from another machine.
+  `sapper preflight` reports when the repository is deletable from here.
+- Drills restore with `--no-cache`, so restic's local cache cannot hide damage in
+  the repository.
 
 ## Secrets
 

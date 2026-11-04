@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/sapper-unbuilt/sapper/internal/manifest"
+	"github.com/sapper-unbuilt/sapper/internal/report"
 )
 
 // ErrSuspicious is returned when live data looks damaged compared with the last backup:
@@ -65,9 +66,9 @@ func Anomalies(prev, cur *manifest.Manifest, roots []string) []Anomaly {
 			}
 			out = append(out, Anomaly{"empty-volume", root, d + ". If it is a mount point, check that the disk is mounted"})
 		case pf >= minFiles && float64(cf) < float64(pf)*shrinkFraction:
-			out = append(out, Anomaly{"shrank", root, fmt.Sprintf("%d files now, %d at the last backup", cf, pf)})
+			out = append(out, Anomaly{"shrank", root, fmt.Sprintf("only %d of the %d files from the last backup are left", cf, pf)})
 		case pb >= 1<<20 && float64(cb) < float64(pb)*shrinkFraction:
-			out = append(out, Anomaly{"shrank", root, fmt.Sprintf("%d bytes now, %d at the last backup", cb, pb)})
+			out = append(out, Anomaly{"shrank", root, fmt.Sprintf("%s now, %s at the last backup", report.Bytes(cb), report.Bytes(pb))})
 		}
 	}
 	if prev == nil {
