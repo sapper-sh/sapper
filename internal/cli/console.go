@@ -511,17 +511,6 @@ func renderPrompt(v consoleView, input string) string {
 	return fmt.Sprintf("\x1b[%d;1H\x1b[2K\x1b[2m%s\x1b[0m\x1b[%d;1H\x1b[48;2;12;35;46m\x1b[2K\x1b[38;2;190;240;255m%s%s\x1b[0m", v.hintRow, hint, v.promptRow, consolePrompt, shown) + move
 }
 
-func visibleLog(log []string, height, cols int) []string {
-	if height < 1 {
-		return nil
-	}
-	wrapped := wrappedLog(log,cols)
-	if len(wrapped) > height {
-		wrapped = wrapped[len(wrapped)-height:]
-	}
-	return wrapped
-}
-
 func wrappedLog(log []string,cols int) []string {
 	var wrapped []string
 	for _, line := range log {
@@ -551,14 +540,6 @@ func wrapRunes(s string, cols int) []string {
 		width+=cells
 	}
 	return append(out,string(r[start:]))
-}
-
-func fitRunes(s string, cols int) string {
-	r := []rune(s)
-	if len(r) <= cols {
-		return s
-	}
-	return string(r[len(r)-cols:])
 }
 
 func stripANSI(s string) string {
