@@ -29,7 +29,7 @@ func TestHint(t *testing.T) {
 		{"some other failure", ""},
 	}
 	for _, tc := range tests {
-		got := Hint("docker", tc.stderr)
+		got := hint("docker", tc.stderr, false)
 		if tc.want == "" && got != "" || !strings.Contains(got, tc.want) {
 			t.Errorf("Hint(%q) = %q, want containing %q", tc.stderr, got, tc.want)
 		}

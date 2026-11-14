@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"github.com/sapper-sh/sapper/internal/statefile"
 	"errors"
 	"fmt"
 	"io"
@@ -205,6 +206,10 @@ func Verify(m *Manifest, base string) (Result, error) {
 	}
 	for _, root := range m.Roots {
 		rroot := RestoredPath(base, root)
+		if !filepath.IsAbs(root) || filepath.Clean(root) != root || (rroot != base && !inside(base, rroot)) || symlinkAncestor(base, rroot) != "" {
+			r.Problems = append(r.Problems, Problem{Path: root, Kind: ProblemUnsafe, Reason: "unsafe restore root"})
+			continue
+		}
 		err := filepath.WalkDir(rroot, func(rp string, _ fs.DirEntry, err error) error {
 			if err != nil {
 				if errors.Is(err, fs.ErrNotExist) && rp == rroot {
@@ -302,7 +307,7 @@ func Save(path string, m *Manifest) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o600)
+	return statefile.Replace(path, data)
 }
 
 // Load reads a manifest written by Save.

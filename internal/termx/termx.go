@@ -12,25 +12,31 @@ func IsTTY(f *os.File) bool { return term.IsTerminal(int(f.Fd())) }
 
 // Width returns the terminal width of f, or 0 when unknown.
 func Width(f *os.File) int {
-	w, _, err := term.GetSize(int(f.Fd()))
-	if err != nil {
-		return 0
-	}
+	w, _ := sizeOf(f)
 	return w
+}
+
+func sizeOf(f *os.File) (width, height int) {
+	w, h, err := term.GetSize(int(f.Fd()))
+	if err != nil {
+		return 0, 0
+	}
+	return w, h
 }
 
 // Style is the resolved output style.
 type Style struct {
-	Color bool // ANSI colour allowed
-	TTY   bool // output is an interactive terminal
-	Width int  // columns, 0 when unknown
+	Color  bool // ANSI colour allowed
+	TTY    bool // output is an interactive terminal
+	Width  int  // columns, 0 when unknown
+	Height int  // rows, 0 when unknown
 }
 
 // Detect resolves the style for f. noColor covers --no-color and --plain.
 func Detect(f *os.File, noColor bool) Style {
 	s := Style{TTY: IsTTY(f)}
 	if s.TTY {
-		s.Width = Width(f)
+		s.Width, s.Height = sizeOf(f)
 	}
 	s.Color = s.TTY && !noColor && colorAllowedByEnv(os.Getenv) && enableVT(f)
 	return s
