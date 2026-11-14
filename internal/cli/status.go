@@ -76,18 +76,36 @@ func (a *app) statusCmd() *cobra.Command {
 // banner prints the boot art sized to the terminal, animated only on an interactive colour terminal.
 func (a *app) banner(noAnim bool) { a.bannerSized(art.Compact, noAnim) }
 
+// bootAnimated reports whether the decrypt reveal should play.
+// Colour and a terminal are required. --no-anim and SAPPER_NO_ANIM skip it.
+// A known height that cannot hold the art would scroll the reveal off the
+// screen, so the still frame is used instead.
+func bootAnimated(s termx.Style, lines int, noAnim bool) bool {
+	if noAnim || os.Getenv("SAPPER_NO_ANIM") != "" || !s.Color || !s.TTY {
+		return false
+	}
+	if s.Height > 0 && lines >= s.Height {
+		return false
+	}
+	return true
+}
+
 func (a *app) bannerSized(max art.Size, noAnim bool) {
-	if a.plain || a.quiet {
+	if a.plain || a.quiet || a.inConsole {
 		return
 	}
-	lines := art.Lines(art.Fit(a.style.Width, max))
-	animate := a.style.Color && a.style.TTY && !noAnim && os.Getenv("SAPPER_NO_ANIM") == ""
-	if !animate {
+	lines := art.Lines(art.FitBox(a.style.Width, a.style.Height, max))
+	if max == art.Full && a.consoleReady(noAnim) {
+		lines = consoleLayout(a.style.Width, a.style.Height).art
+	}
+	if !bootAnimated(a.style, len(lines), noAnim) {
 		fmt.Fprint(a.stdout, art.Render(lines, a.style.Color))
 		return
 	}
 	skip := make(chan struct{})
-	if f, ok := a.stdin.(*os.File); ok && termx.IsTTY(f) {
+	// The console owns the keyboard once the boot reveal finishes. Reading a
+	// key here would swallow the first thing the operator types.
+	if f, ok := a.stdin.(*os.File); ok && termx.IsTTY(f) && !a.consoleReady(noAnim) {
 		go func() {
 			buf := make([]byte, 1)
 			if _, err := f.Read(buf); err == nil {

@@ -32,7 +32,7 @@ func TestDetectNonTTYIsPlain(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer f.Close()
-	if s := Detect(f, false); s.Color || s.TTY || s.Width != 0 {
+	if s := Detect(f, false); s.Color || s.TTY || s.Width != 0 || s.Height != 0 {
 		t.Fatalf("file output detected as %+v", s)
 	}
 }

@@ -4,6 +4,7 @@ package art
 import (
 	_ "embed"
 	"fmt"
+	"math"
 	"strings"
 	"unicode/utf8"
 )
@@ -38,12 +39,24 @@ func Lines(s Size) []string {
 	}
 }
 
-// Fit returns the largest variant no wider than cols. cols <= 0 means unknown and selects Full.
+// Fit returns the largest variant no wider than cols. cols <= 0 means unknown and selects the max variant.
 func Fit(cols int, max Size) Size {
+	return FitBox(cols, 0, max)
+}
+
+// FitBox returns the largest variant no wider than cols and short enough to
+// leave the cursor on the next row. A non-positive cols or rows means that
+// dimension is unknown and does not constrain the choice.
+func FitBox(cols, rows int, max Size) Size {
 	for s := max; s > OneLine; s-- {
-		if cols <= 0 || Width(Lines(s)) <= cols {
-			return s
+		lines := Lines(s)
+		if cols > 0 && Width(lines) > cols {
+			continue
 		}
+		if rows > 0 && len(lines) >= rows {
+			continue
+		}
+		return s
 	}
 	return OneLine
 }
@@ -70,6 +83,52 @@ func Render(lines []string, color bool) string {
 			b.WriteString(l)
 		}
 		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
+// RenderGlow is the coloured art with a faint highlight sweeping across it.
+// phase wraps into [0,1). The console redraws this in place; it is not a new frame dump.
+func RenderGlow(lines []string, phase float64) string {
+	var b strings.Builder
+	w := Width(lines)
+	phase -= math.Floor(phase)
+	for _, l := range lines {
+		b.WriteString(colorLineGlow(l, w, phase))
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
+// ShimmerDelta recolors only visible glyphs whose highlight changed. A negative
+// previous phase denotes the still frame drawn on entry or resize.
+func ShimmerDelta(lines []string, cols int, previous, phase float64) string {
+	var b strings.Builder
+	width := Width(lines)
+	for y, line := range lines {
+		for x, r := range []rune(line) {
+			if x >= cols {
+				break
+			}
+			if r == ' ' {
+				continue
+			}
+			before := cellColor(r, x, width)
+			if previous >= 0 {
+				before = cellColorGlow(r, x, width, previous)
+			}
+			after := cellColorGlow(r, x, width, phase)
+			if before == after {
+				continue
+			}
+			if b.Len() == 0 {
+				b.WriteString("\x1b7")
+			}
+			fmt.Fprintf(&b, "\x1b[%d;%dH%s%c", y+1, x+1, after.fg(), r)
+		}
+	}
+	if b.Len() > 0 {
+		b.WriteString(reset + "\x1b8")
 	}
 	return b.String()
 }
@@ -115,18 +174,39 @@ func lerp(a, b uint8, t float64) uint8 { return uint8(float64(a) + (float64(b)-f
 
 var density = map[rune]float64{'█': 1, '▀': .92, '▄': .92, '▌': .9, '▐': .9, '▓': .62, '▒': .42, '░': .24}
 
-// cellColor returns the colour for rune r at column x of a line in a block of width w.
-func cellColor(r rune, x, w int) RGB {
+// cellValue is the ice-palette position for rune r at column x.
+func cellValue(r rune, x, w int) float64 {
 	v, ok := density[r]
 	if !ok {
 		v = .8
 	}
-	if w > 0 {
+	if w > 1 {
 		d := float64(x-w/2) / float64(w/2)
 		if d < 0 {
 			d = -d
 		}
 		v *= 1 - .35*d
+	}
+	return v
+}
+
+// cellColor returns the colour for rune r at column x of a line in a block of width w.
+func cellColor(r rune, x, w int) RGB { return Ice(cellValue(r, x, w)) }
+
+func cellColorGlow(r rune, x, w int, phase float64) RGB {
+	v := cellValue(r, x, w)
+	if w > 0 {
+		center := phase * float64(w)
+		dist := float64(x) - center
+		if dist < 0 {
+			dist = -dist
+		}
+		if dist < 5 {
+			v += (1 - dist/5) * 0.16
+			if v > 1 {
+				v = 1
+			}
+		}
 	}
 	return Ice(v)
 }
@@ -143,6 +223,31 @@ func colorLine(l string, y, h, w int) string {
 			continue
 		}
 		c := cellColor(r, x, w)
+		if !open || c != last {
+			b.WriteString(c.fg())
+			last, open = c, true
+		}
+		b.WriteRune(r)
+		x++
+	}
+	if open {
+		b.WriteString(reset)
+	}
+	return b.String()
+}
+
+func colorLineGlow(l string, w int, phase float64) string {
+	var b strings.Builder
+	var last RGB
+	open := false
+	x := 0
+	for _, r := range l {
+		if r == ' ' {
+			b.WriteRune(r)
+			x++
+			continue
+		}
+		c := cellColorGlow(r, x, w, phase)
 		if !open || c != last {
 			b.WriteString(c.fg())
 			last, open = c, true

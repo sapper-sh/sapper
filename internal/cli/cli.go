@@ -43,7 +43,9 @@ type app struct {
 	noColor       bool
 	plain         bool
 
-	style termx.Style
+	style     termx.Style
+	root      *cobra.Command
+	inConsole bool
 }
 
 // Main runs sapper with args and returns the process exit code.
@@ -102,13 +104,25 @@ captured at backup time. Drills never write to live data.`,
 	pf.BoolVar(&a.noColor, "no-color", false, "disable colour (NO_COLOR is also honoured)")
 	pf.BoolVar(&a.plain, "plain", false, "no colour, no art, no animation")
 
+	// Bare `sapper` is the boot screen. Printing Cobra help afterwards fills a
+	// normal terminal, so the only thing left on screen is the subcommand list.
+	// Help stays on --help and the help command. --plain and --quiet suppress
+	// art, and fall back to that usage text instead of exiting silently.
+	// An interactive colour terminal then stays open as the console.
 	root.RunE = func(cmd *cobra.Command, _ []string) error {
+		if a.plain || a.quiet {
+			return cmd.Help()
+		}
 		noAnim, _ := cmd.Flags().GetBool("no-anim")
 		a.bannerSized(art.Full, noAnim)
-		return cmd.Help()
+		if a.consoleReady(noAnim) {
+			return a.runConsole(cmd.Context())
+		}
+		return nil
 	}
 	root.Flags().Bool("no-anim", false, "skip the boot animation")
 	root.AddCommand(a.initCmd(), a.validateCmd(), a.buildCmd(), a.backupCmd(), a.breachCmd(), a.preflightCmd(), a.reportsCmd(), a.keygenCmd(), a.statusCmd(), a.taleCmd())
+	a.root = root
 	return root
 }
 
@@ -314,6 +328,9 @@ func (p *passwordFlags) resolve(a *app, bp *blueprint.Blueprint) (string, error)
 		}
 		return strings.TrimRight(string(data), "\r\n"), nil
 	case p.stdin:
+		if a.inConsole {
+			return "", usagef("the console uses stdin for commands; use --password-file or the blueprint password environment variable, or pipe a password to standalone sapper")
+		}
 		line, err := bufio.NewReader(a.stdin).ReadString('\n')
 		if err != nil && !errors.Is(err, io.EOF) {
 			return "", err

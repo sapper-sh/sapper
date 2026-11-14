@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/json"
+	"github.com/sapper-sh/sapper/internal/statefile"
 	"errors"
 	"fmt"
 	"math/rand/v2"
@@ -90,11 +91,24 @@ func Backup(ctx context.Context, bp *blueprint.Blueprint, r Restic, opt BackupOp
 	if err != nil {
 		return BackupRecord{}, err
 	}
-	last, hadBackup := LastBackup(bp)
+	var last BackupRecord
+	err = readState(bp, "last-backup.json", &last)
+	hadBackup := err == nil
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return BackupRecord{}, fmt.Errorf("reading prior backup record: %w", err)
+	}
 	var prev *manifest.Manifest
-	if hadBackup && validID(last.Snapshot) {
-		if mp, err := statePath(bp, "manifests", last.Snapshot+".json"); err == nil {
-			prev, _ = manifest.Load(mp)
+	if hadBackup {
+		if !validID(last.Snapshot) {
+			return BackupRecord{}, errors.New("prior backup record has an invalid snapshot ID")
+		}
+		mp, err := statePath(bp, "manifests", last.Snapshot+".json")
+		if err != nil {
+			return BackupRecord{}, err
+		}
+		prev, err = manifest.Load(mp)
+		if err != nil && !opt.Force {
+			return BackupRecord{}, fmt.Errorf("reading prior backup manifest: %w", err)
 		}
 	}
 	anomalies := Anomalies(prev, before, paths)
@@ -162,13 +176,21 @@ func retain(ctx context.Context, bp *blueprint.Blueprint, r Restic) ([]string, e
 	sl, ok1 := r.(snapshotLister)
 	fg, ok2 := r.(idForgetter)
 	if !ok1 || !ok2 {
-		return nil, r.Forget(ctx, Tag, keep)
+		// Tag-wide deletion cannot protect other fortresses.
+		return nil, nil
 	}
 	snaps, err := sl.Snapshots(ctx, Tag)
 	if err != nil {
 		return nil, err
 	}
-	verified, _ := LastVerified(bp)
+	var verified VerifiedRecord
+	if err := readState(bp, "last-verified.json", &verified); err == nil {
+		if !validID(verified.Snapshot) {
+			return nil, errors.New("invalid verified snapshot ID; retention stopped")
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("reading verified snapshot before retention: %w", err)
+	}
 	mine := snaps[:0:0]
 	for _, s := range snaps {
 		if hasTag(s, "fortress:"+bp.Fortress) && samePaths(s.Paths, bp.VolumePaths()) {
@@ -178,7 +200,7 @@ func retain(ctx context.Context, bp *blueprint.Blueprint, r Restic) ([]string, e
 	snaps = mine
 	var drop []string
 	for i, s := range snaps {
-		if i >= len(snaps)-keep || s.ID == verified.Snapshot || !validID(s.ID) {
+		if i >= len(snaps)-keep || (verified.Snapshot != "" && strings.HasPrefix(s.ID, verified.Snapshot)) || !validID(s.ID) {
 			continue
 		}
 		drop = append(drop, s.ID)
@@ -464,7 +486,9 @@ func drill(ctx context.Context, bp *blueprint.Blueprint, r Restic, opt DrillOpti
 		})
 	}
 	if len(res.Problems) == 0 {
-		_ = writeState(bp, "last-verified.json", VerifiedRecord{Snapshot: snap.ID, Time: in.Started.UTC()})
+		if err := writeState(bp, "last-verified.json", VerifiedRecord{Snapshot: snap.ID, Time: in.Started.UTC()}); err != nil {
+			return fmt.Errorf("saving verified snapshot: %w", err)
+		}
 	}
 	return nil
 }
@@ -743,7 +767,7 @@ func writeJSON(path string, v any) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o600)
+	return statefile.Replace(path, data)
 }
 
 func readJSON(path string, v any) error {
